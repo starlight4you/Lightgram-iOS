@@ -95,7 +95,7 @@ private final class HistoryPreloadEntry: Comparable {
         return lhs.hole < rhs.hole
     }
     
-    func startIfNeeded(postbox: Postbox, accountPeerId: PeerId, download: Signal<Download, NoError>, queue: Queue) {
+    func startIfNeeded(postbox: Postbox, accountPeerId: PeerId, download: Signal<Download, NoError>, queue: Queue, immediate: Bool = false) {
         if !self.isStarted {
             self.isStarted = true
             
@@ -103,8 +103,17 @@ private final class HistoryPreloadEntry: Comparable {
             
             Logger.shared.log("HistoryPreload", "start hole \(hole)")
             
+            let holeDelay: Double
+            if immediate {
+                holeDelay = 0.0
+            } else if sharedReducedHistoryPreloadDelays {
+                holeDelay = 0.05
+            } else {
+                holeDelay = 0.3
+            }
+            
             let signal: Signal<Never, NoError> = .complete()
-            |> delay(0.3, queue: queue)
+            |> delay(holeDelay, queue: queue)
             |> then(
                 download
                 |> take(1)
@@ -354,8 +363,9 @@ final class ChatHistoryPreloadManager {
             return disposable
         }
         
+        let listUpdateDelay: Double = sharedReducedHistoryPreloadDelays ? 0.1 : 1.0
         self.automaticChatListDisposable.set((combineLatest(queue: .mainQueue(), self.preloadItemsSignal, additionalPeerIds)
-        |> delay(1.0, queue: .mainQueue())
+        |> delay(listUpdateDelay, queue: .mainQueue())
         |> deliverOnMainQueue).start(next: { [weak self] loadItems, additionalPeerIds in
             guard let strongSelf = self else {
                 return
@@ -537,7 +547,8 @@ final class ChatHistoryPreloadManager {
         if self.canPreloadHistoryValue {
             Logger.shared.log("HistoryPreload", "will start")
             for i in 0 ..< min(3, self.entries.count) {
-                self.entries[i].startIfNeeded(postbox: self.postbox, accountPeerId: self.accountPeerId, download: self.download.get() |> take(1), queue: self.queue)
+                let immediate = self.entries[i].hole.preloadIndex.isPriority
+                self.entries[i].startIfNeeded(postbox: self.postbox, accountPeerId: self.accountPeerId, download: self.download.get() |> take(1), queue: self.queue, immediate: immediate)
             }
         } else {
             Logger.shared.log("HistoryPreload", "will not start, canPreloadHistoryValue = false")

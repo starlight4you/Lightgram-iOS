@@ -232,7 +232,7 @@ public final class ChatTextInputMediaRecordingButton: TGModernConversationInputM
     
     private func updateShadow() {
         if let view = self.animationView.view {
-            if self.hasShadow {
+            if self.hasShadow && !sharedLiteModeEnabled {
                 view.layer.shadowOffset = CGSize(width: 0.0, height: 0.0)
                 view.layer.shadowRadius = 2.0
                 view.layer.shadowColor = UIColor.black.cgColor

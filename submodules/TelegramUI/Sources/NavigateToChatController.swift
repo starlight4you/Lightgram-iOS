@@ -78,6 +78,7 @@ public func navigateToChatControllerImpl(_ params: NavigateToChatControllerParam
         viewForumAsMessages |> take(1),
         requiresAgeVerification
     ).start(next: { viewForumAsMessages, requiresAgeVerification in
+        logChatOpenTiming("T1_navigateSignalsReady")
         if requiresAgeVerification, let parentController = params.navigationController.viewControllers.last as? ViewController {
             presentAgeVerification(context: params.context, parentController: parentController, completion: {
                 navigateToChatControllerImpl(params.withSkipAgeVerification(true))
@@ -286,13 +287,16 @@ public func navigateToChatControllerImpl(_ params: NavigateToChatControllerParam
             case .never:
                 resolvedKeepStack = false
             }
+            logChatOpenTiming("T2_beforePush")
             if resolvedKeepStack {
                 if let pushController = params.pushController {
                     pushController(controller, params.animated, {
+                        logChatOpenTiming("T4_navigationComplete")
                         params.completion(controller)
                     })
                 } else {
                     params.navigationController.pushViewController(controller, animated: params.animated, completion: {
+                        logChatOpenTiming("T4_navigationComplete")
                         params.completion(controller)
                     })
                 }
@@ -315,16 +319,19 @@ public func navigateToChatControllerImpl(_ params: NavigateToChatControllerParam
                 })
                 if viewControllers.isEmpty {
                     params.navigationController.replaceAllButRootController(controller, animated: params.animated, animationOptions: params.options, completion: {
+                        logChatOpenTiming("T4_navigationComplete")
                         params.completion(controller)
                     })
                 } else {
                     if params.useBackAnimation {
                         params.navigationController.viewControllers = [controller] + params.navigationController.viewControllers
                         params.navigationController.replaceControllers(controllers: viewControllers + [controller], animated: params.animated, options: params.options, completion: {
+                            logChatOpenTiming("T4_navigationComplete")
                             params.completion(controller)
                         })
                     } else {
                         params.navigationController.replaceControllersAndPush(controllers: viewControllers, controller: controller, animated: params.animated, options: params.options, completion: {
+                            logChatOpenTiming("T4_navigationComplete")
                             params.completion(controller)
                         })
                     }

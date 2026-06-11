@@ -97,6 +97,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     case enableDebugDataDisplay(Bool)
     case fakeGlass(Bool)
     case forceClearGlass(Bool)
+    case liteMode(Bool?)
     case debugRipple(Bool)
     case debugRichText(Bool)
     case browserExperiment(Bool)
@@ -138,7 +139,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return DebugControllerSection.web.rawValue
         case .keepChatNavigationStack, .skipReadHistory, .alwaysDisplayTyping, .debugRatingLayout, .crashOnSlowQueries, .crashOnMemoryPressure:
             return DebugControllerSection.experiments.rawValue
-        case .clearTips, .resetNotifications, .crash, .fillLocalSavedMessageCache, .resetDatabase, .resetDatabaseAndCache, .resetHoles, .resetTagHoles, .reindexUnread, .resetCacheIndex, .reindexCache, .resetBiometricsData, .optimizeDatabase, .photoPreview, .knockoutWallpaper, .compressedEmojiCache, .storiesJpegExperiment, .checkSerializedData, .enableQuickReactionSwitch, .experimentalCompatibility, .enableDebugDataDisplay, .fakeGlass, .forceClearGlass, .debugRipple, .debugRichText, .browserExperiment, .allForumsHaveTabs, .enableReactionOverrides, .restorePurchases, .disableReloginTokens, .liveStreamV2, .experimentalCallMute, .playerV2, .devRequests, .enableUpdates, .pwa, .enableLocalTranslation:
+        case .clearTips, .resetNotifications, .crash, .fillLocalSavedMessageCache, .resetDatabase, .resetDatabaseAndCache, .resetHoles, .resetTagHoles, .reindexUnread, .resetCacheIndex, .reindexCache, .resetBiometricsData, .optimizeDatabase, .photoPreview, .knockoutWallpaper, .compressedEmojiCache, .storiesJpegExperiment, .checkSerializedData, .enableQuickReactionSwitch, .experimentalCompatibility, .enableDebugDataDisplay, .fakeGlass, .forceClearGlass, .liteMode, .debugRipple, .debugRichText, .browserExperiment, .allForumsHaveTabs, .enableReactionOverrides, .restorePurchases, .disableReloginTokens, .liveStreamV2, .experimentalCallMute, .playerV2, .devRequests, .enableUpdates, .pwa, .enableLocalTranslation:
             return DebugControllerSection.experiments.rawValue
         case .logTranslationRecognition, .resetTranslationStates:
             return DebugControllerSection.translation.rawValue
@@ -285,6 +286,8 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return 103
         case .versionInfo:
             return 104
+        case .liteMode:
+            return 105
         }
     }
     
@@ -1298,6 +1301,38 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                     })
                 }).start()
             })
+        case let .liteMode(value):
+            // Cycles Auto -> On -> Off -> Auto on each tap. Auto follows DeviceMetrics.performance.isLowEndDevice.
+            let labelText: String
+            let switchValue: Bool
+            switch value {
+            case nil:
+                labelText = DeviceMetrics.performance.isLowEndDevice ? "Auto (On)" : "Auto (Off)"
+                switchValue = DeviceMetrics.performance.isLowEndDevice
+            case .some(true):
+                labelText = "On"
+                switchValue = true
+            case .some(false):
+                labelText = "Off"
+                switchValue = false
+            }
+            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Lite Mode (\(labelText))", value: switchValue, sectionId: self.section, style: .blocks, updated: { value in
+                let _ = arguments.sharedContext.accountManager.transaction ({ transaction in
+                    transaction.updateSharedData(ApplicationSpecificSharedDataKeys.experimentalUISettings, { settings in
+                        var settings = settings?.get(ExperimentalUISettings.self) ?? ExperimentalUISettings.defaultSettings
+                        // Toggle: nil (auto) -> true -> false -> nil. Each tap advances one step.
+                        switch settings.liteMode {
+                        case nil:
+                            settings.liteMode = value
+                        case .some(true):
+                            settings.liteMode = false
+                        case .some(false):
+                            settings.liteMode = nil
+                        }
+                        return PreferencesEntry(settings)
+                    })
+                }).start()
+            })
         case let .debugRipple(value):
             return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Debug Ripple", value: value, sectionId: self.section, style: .blocks, updated: { value in
                 let _ = arguments.sharedContext.accountManager.transaction ({ transaction in
@@ -1595,6 +1630,7 @@ private func debugControllerEntries(context: AccountContext?, sharedContext: Sha
         entries.append(.enableDebugDataDisplay(experimentalSettings.enableDebugDataDisplay))
         entries.append(.fakeGlass(experimentalSettings.fakeGlass))
         entries.append(.forceClearGlass(experimentalSettings.forceClearGlass))
+        entries.append(.liteMode(experimentalSettings.liteMode))
         entries.append(.debugRipple(experimentalSettings.debugRipple))
         entries.append(.debugRichText(experimentalSettings.debugRichText))
         #if DEBUG

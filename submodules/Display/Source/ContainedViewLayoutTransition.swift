@@ -105,6 +105,23 @@ public enum ContainedViewLayoutTransition {
             return true
         }
     }
+    
+    /// Opt-in helper for hot paths that should fall back to ``immediate`` when
+    /// Lite Mode is on AND the user has enabled iOS Reduce Motion.
+    ///
+    /// Intentionally does NOT collapse animations purely on Lite Mode, since
+    /// gesture-driven transitions and dismissal animations rely on the
+    /// `.animated` value carrying duration / curve. Only use this on
+    /// non-essential cosmetic transitions (list inserts, scroll-to-message).
+    public static func preferred(
+        duration: Double,
+        curve: ContainedViewLayoutTransitionCurve = .easeInOut
+    ) -> ContainedViewLayoutTransition {
+        if sharedLiteModeEnabled && UIAccessibility.isReduceMotionEnabled {
+            return .immediate
+        }
+        return .animated(duration: duration, curve: curve)
+    }
 }
 
 public extension CGRect {

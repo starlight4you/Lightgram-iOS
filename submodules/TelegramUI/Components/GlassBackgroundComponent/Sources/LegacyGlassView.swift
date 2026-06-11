@@ -141,7 +141,7 @@ final class LegacyGlassView: UIView {
             if let blurFilter = CALayer.blur(), let colorMatrixFilter = CALayer.colorMatrix() {
                 switch style {
                 case .clear:
-                    if #available(iOS 17.0, *), DeviceMetrics.performance.isGraphicallyCapable {
+                    if #available(iOS 17.0, *), DeviceMetrics.performance.isGraphicallyCapable, !sharedDisableBlur {
                         blurFilter.setValue(2.0 as NSNumber, forKey: "inputRadius")
                     } else {
                         blurFilter.setValue(6.0 as NSNumber, forKey: "inputRadius")
@@ -171,7 +171,7 @@ final class LegacyGlassView: UIView {
         transition.setCornerRadius(layer: self.layer, cornerRadius: cornerRadius)
         transition.setFrame(layer: backdropLayer, frame: CGRect(origin: CGPoint(), size: size))
         
-        if #available(iOS 17.0, *), DeviceMetrics.performance.isGraphicallyCapable {
+        if #available(iOS 17.0, *), DeviceMetrics.performance.isGraphicallyCapable, !sharedLiteModeEnabled {
             let size = CGSize(width: max(1.0, size.width), height: max(1.0, size.height))
             let cornerRadius = min(min(size.width, size.height) * 0.5, cornerRadius)
             let displacementMagnitudePoints: CGFloat = 20.0

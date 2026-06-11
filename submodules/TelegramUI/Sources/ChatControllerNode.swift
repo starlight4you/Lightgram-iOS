@@ -3999,6 +3999,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                     chatPeerId: self.chatLocation.peerId,
                     areCustomEmojiEnabled: self.chatPresentationInterfaceState.customEmojiAvailable,
                     hasEdit: true,
+                    hasTrending: !sharedLiteModeEnabled,
                     hideBackground: true,
                     maskEdge: .clip,
                     sendGif: { [weak self] fileReference, sourceView, sourceRect, silentPosting, schedule in

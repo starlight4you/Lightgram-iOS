@@ -392,6 +392,7 @@ final class ContextSourceContainer: ASDisplayNode {
         self.controller = controller
         
         self.backgroundNode = NavigationBackgroundNode(color: .clear, enableBlur: false)
+        self.backgroundNode.keepTransparentWhenBlurDisabled = true
         
         super.init()
         

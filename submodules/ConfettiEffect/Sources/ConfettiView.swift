@@ -48,6 +48,10 @@ public final class ConfettiView: UIView {
         
         self.isUserInteractionEnabled = false
         
+        if sharedLiteModeEnabled {
+            return
+        }
+        
         let colors: [UIColor] = ([
             0x56CE6B,
             0xCD89D0,

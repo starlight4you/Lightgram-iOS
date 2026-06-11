@@ -81,3 +81,6 @@ xcode-files
 **/.claude/settings.local.json
 **/.vscode/launch.json
 /buildbox/*
+
+# Local build credentials — never commit real api_id / api_hash / team_id
+build-system/lite-development-configuration.json

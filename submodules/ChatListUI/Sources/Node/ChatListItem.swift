@@ -2053,6 +2053,10 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
         
         self.isHighlighted = highlighted
         
+        if highlighted, let item = self.item, case let .peer(peerData) = item.content, let peer = peerData.peer.peer {
+            let _ = item.context.account.addAdditionalPreloadHistoryPeerId(peerId: peer.id)
+        }
+        
         self.updateIsHighlighted(transition: (animated && !highlighted) ? .animated(duration: 0.3, curve: .easeInOut) : .immediate)
     }
     

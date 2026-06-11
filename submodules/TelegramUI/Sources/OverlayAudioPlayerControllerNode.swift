@@ -1010,7 +1010,11 @@ final class OverlayAudioPlayerControllerNode: ViewControllerTracingNode, ASGestu
                 let sourceFrame = self.controlsNode.albumArtNode.view.convert(self.controlsNode.albumArtNode.bounds, to: self.albumArtBackground.contentView)
                 ContainedViewLayoutTransition.animated(duration: 0.4, curve: .spring).animateFrame(node: self.albumArtNode, from: sourceFrame)
                 UIView.animate(withDuration: 0.2, animations: {
-                    self.albumArtBackground.effect = UIBlurEffect(style: self.presentationData.theme.overallDarkAppearance ? .dark : .light)
+                    if sharedDisableBlur {
+                        self.albumArtBackground.effect = nil
+                    } else {
+                        self.albumArtBackground.effect = UIBlurEffect(style: self.presentationData.theme.overallDarkAppearance ? .dark : .light)
+                    }
                 })
             }
         } else {

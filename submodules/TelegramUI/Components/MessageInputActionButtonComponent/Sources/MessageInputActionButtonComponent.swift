@@ -575,7 +575,7 @@ public final class MessageInputActionButtonComponent: Component {
                 } else {
                     self.sendIconView.image = nil
                 }
-                if case .removeVideoInput = component.mode, component.hasShadow {
+                if case .removeVideoInput = component.mode, component.hasShadow, !sharedLiteModeEnabled {
                     self.sendIconView.layer.shadowOffset = CGSize(width: 0.0, height: 0.0)
                     self.sendIconView.layer.shadowRadius = 2.0
                     self.sendIconView.layer.shadowColor = UIColor.black.cgColor

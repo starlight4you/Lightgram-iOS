@@ -3304,7 +3304,8 @@ public final class ChatListNode: ListViewImpl {
                                 default:
                                     break
                                 }
-                                if preloadItems.count >= 30 {
+                                let preloadLimit = sharedLiteModeEnabled ? 45 : 30
+                                if preloadItems.count >= preloadLimit {
                                     break
                                 }
                             }

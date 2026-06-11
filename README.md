@@ -1,116 +1,110 @@
-# Telegram iOS Source Code Compilation Guide
+# Lightgram iOS
 
-We welcome all developers to use our API and source code to create applications on our platform.
-There are several things we require from **all developers** for the moment.
+基于 [Telegram-iOS](https://github.com/TelegramMessenger/Telegram-iOS) 的 fork，面向老款 iPad（iPad Air 2 / iPad mini 4 / iPad Pro 第一代等）做了 **Lite Mode** 性能优化，在保留核心聊天功能的前提下降低 GPU / CPU 负载。
 
-# Creating your Telegram Application
+> **免责声明**：本项目为第三方客户端，与 Telegram 官方无关。请遵守 [Telegram API 使用条款](https://core.telegram.org/api/terms)，不要使用「Telegram」作为应用名称，也不要使用官方 logo。
 
-1. [**Obtain your own api_id**](https://core.telegram.org/api/obtaining_api_id) for your application.
-2. Please **do not** use the name Telegram for your app — or make sure your users understand that it is unofficial.
-3. Kindly **do not** use our standard logo (white paper plane in a blue circle) as your app's logo.
-3. Please study our [**security guidelines**](https://core.telegram.org/mtproto/security_guidelines) and take good care of your users' data and privacy.
-4. Please remember to publish **your** code too in order to comply with the licences.
+## 功能概览
 
-# Quick Compilation Guide
+Lite Mode 开启后会：
 
-## Get the Code
+- 关闭 `UIVisualEffectView` 毛玻璃、壁纸渐变动画、Confetti / Dust 粒子特效
+- 隐藏 Stories 入口并停止 Stories 网络同步
+- 限制刷新率为 60 Hz，缩小列表预加载范围，减少 emoji / GIF 并发解码
+- 在无法使用 App Groups 时自动回退到 Application Support 目录（适配免费 Personal Team 签名）
 
+完整技术说明见 [`docs/lite-mode.md`](docs/lite-mode.md)。
+
+在应用内：**设置 → 实验性功能 → Lite Mode** 可手动开关；老款 iPad 会自动建议开启。
+
+## 环境要求
+
+- macOS + Xcode（版本见 [`versions.json`](versions.json)）
+- Python 3
+- [Bazel](https://bazel.build/)（`Make.py` 会自动下载匹配版本）
+
+## 获取代码
+
+```sh
+git clone --recursive -j8 https://github.com/starlight4you/lightgram-ios.git
+cd lightgram-ios
 ```
-git clone --recursive -j8 https://github.com/TelegramMessenger/Telegram-iOS.git
+
+## 配置（必读）
+
+### 1. 申请 Telegram API 凭证
+
+前往 <https://my.telegram.org/apps> 创建应用，记下 `api_id` 和 `api_hash`。
+
+**切勿将真实的 `api_id` / `api_hash` 提交到 Git。**
+
+### 2. 准备本地配置文件
+
+```sh
+cp build-system/lite-development-configuration.json.example \
+   build-system/lite-development-configuration.json
 ```
 
-## Setup Xcode
+编辑 `build-system/lite-development-configuration.json`，填入：
 
-Install Xcode (directly from https://developer.apple.com/download/applications or using the App Store).
+| 字段 | 说明 |
+|------|------|
+| `bundle_id` | 你的 Bundle ID，如 `org.example.lightgram` |
+| `api_id` | 从 my.telegram.org 获取 |
+| `api_hash` | 从 my.telegram.org 获取 |
+| `team_id` | Apple Developer Team ID（Xcode → Signing 或 Keychain 证书详情中查看） |
 
-## Adjust Configuration
+该文件已在 `.gitignore` 中，不会被 git 跟踪。
 
-1. Generate a random identifier:
-```
-openssl rand -hex 8
-```
-2. Create a new Xcode project. Use `Telegram` as the Product Name. Use `org.{identifier from step 1}` as the Organization Identifier.
-3. Open `Keychain Access` and navigate to `Certificates`. Locate `Apple Development: your@email.address (XXXXXXXXXX)` and double tap the certificate. Under `Details`, locate `Organizational Unit`. This is the Team ID.
-4. Edit `build-system/template_minimal_development_configuration.json`. Use data from the previous steps.
+### 3. 生成 Xcode 工程
 
-## Generate an Xcode project
-
-```
-python3 build-system/Make/Make.py \
-    --cacheDir="$HOME/telegram-bazel-cache" \
+```sh
+python3 build-system/Make/Make.py --overrideXcodeVersion \
+    --cacheDir ~/telegram-bazel-cache \
     generateProject \
-    --configurationPath=build-system/template_minimal_development_configuration.json \
-    --xcodeManagedCodesigning
+    --configurationPath build-system/lite-development-configuration.json \
+    --xcodeManagedCodesigning \
+    --disableExtensions \
+    --buildNumber=1
 ```
 
-# Advanced Compilation Guide
+然后打开 `Telegram/Telegram.xcodeproj` 进行编译或调试。
 
-## Xcode
+## 构建
 
-1. Copy and edit `build-system/appstore-configuration.json`.
-2. Copy `build-system/fake-codesigning`. Create and download provisioning profiles, using the `profiles` folder as a reference for the entitlements.
-3. Generate an Xcode project:
-```
-python3 build-system/Make/Make.py \
-    --cacheDir="$HOME/telegram-bazel-cache" \
-    generateProject \
-    --configurationPath=configuration_from_step_1.json \
-    --codesigningInformationPath=directory_from_step_2
-```
+### 模拟器（无需签名）
 
-## IPA
-
-1. Repeat the steps from the previous section. Use distribution provisioning profiles.
-2. Run:
-```
-python3 build-system/Make/Make.py \
-    --cacheDir="$HOME/telegram-bazel-cache" \
+```sh
+python3 build-system/Make/Make.py --overrideXcodeVersion \
+    --cacheDir ~/telegram-bazel-cache \
     build \
-    --configurationPath=...see previous section... \
-    --codesigningInformationPath=...see previous section... \
-    --buildNumber=100001 \
-    --configuration=release_arm64
+    --configurationPath build-system/lite-development-configuration.json \
+    --xcodeManagedCodesigning \
+    --buildNumber=1 \
+    --configuration=debug_sim_arm64
 ```
 
-# FAQ
+### 真机（免费 Apple ID / Personal Team）
 
-## Xcode is stuck at "build-request.json not updated yet"
+在 `generateProject` 命令中加上 `--disableExtensions`，构建配置使用 `debug_arm64`：
 
-Occasionally, you might observe the following message in your build log:
-```
-"/Users/xxx/Library/Developer/Xcode/DerivedData/Telegram-xxx/Build/Intermediates.noindex/XCBuildData/xxx.xcbuilddata/build-request.json" not updated yet, waiting...
-```
-
-Should this occur, simply cancel the ongoing build and initiate a new one.
-
-## Telegram_xcodeproj: no such package 
-
-Following a system restart, the auto-generated Xcode project might encounter a build failure accompanied by this error:
-```
-ERROR: Skipping '@rules_xcodeproj_generated//generator/Telegram/Telegram_xcodeproj:Telegram_xcodeproj': no such package '@rules_xcodeproj_generated//generator/Telegram/Telegram_xcodeproj': BUILD file not found in directory 'generator/Telegram/Telegram_xcodeproj' of external repository @rules_xcodeproj_generated. Add a BUILD file to a directory to mark it as a package.
+```sh
+python3 build-system/Make/Make.py --overrideXcodeVersion \
+    --cacheDir ~/telegram-bazel-cache \
+    build \
+    --configurationPath build-system/lite-development-configuration.json \
+    --xcodeManagedCodesigning \
+    --disableExtensions \
+    --buildNumber=1 \
+    --configuration=debug_arm64
 ```
 
-If you encounter this issue, re-run the project generation steps in the README.
+首次真机构建可能需要 1–2 小时。更多排错说明见 [`docs/lite-mode.md`](docs/lite-mode.md#build)。
 
+## 上游文档
 
-# Tips
+通用编译问题（Bazel 缓存、Xcode 版本、签名等）可参考上游 README 的 [FAQ](https://github.com/TelegramMessenger/Telegram-iOS#faq) 章节，或本仓库 [`docs/lite-mode.md`](docs/lite-mode.md)。
 
-## Codesigning is not required for simulator-only builds
+## 许可证
 
-Add `--disableProvisioningProfiles`:
-```
-python3 build-system/Make/Make.py \
-    --cacheDir="$HOME/telegram-bazel-cache" \
-    generateProject \
-    --configurationPath=path-to-configuration.json \
-    --codesigningInformationPath=path-to-provisioning-data \
-    --disableProvisioningProfiles
-```
-
-## Versions
-
-Each release is built using a specific Xcode version (see `versions.json`). The helper script checks the versions of the installed software and reports an error if they don't match the ones specified in `versions.json`. It is possible to bypass these checks:
-
-```
-python3 build-system/Make/Make.py --overrideXcodeVersion build ... # Don't check the version of Xcode
-```
+本项目继承 Telegram-iOS 的 [GPL v2](LICENSE) 许可证。修改后的源代码须按相同许可证公开。

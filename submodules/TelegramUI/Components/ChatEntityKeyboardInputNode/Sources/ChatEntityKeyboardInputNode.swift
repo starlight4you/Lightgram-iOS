@@ -199,7 +199,12 @@ public final class ChatEntityKeyboardInputNode: ChatInputNode {
         )
 
         let stickerNamespaces: [ItemCollectionId.Namespace] = [Namespaces.ItemCollection.CloudStickerPacks]
-        let stickerOrderedItemListCollectionIds: [Int32] = [Namespaces.OrderedItemList.CloudSavedStickers, Namespaces.OrderedItemList.CloudRecentStickers, Namespaces.OrderedItemList.CloudAllPremiumStickers]
+        let stickerOrderedItemListCollectionIds: [Int32]
+        if sharedLiteModeEnabled {
+            stickerOrderedItemListCollectionIds = [Namespaces.OrderedItemList.CloudSavedStickers, Namespaces.OrderedItemList.CloudRecentStickers]
+        } else {
+            stickerOrderedItemListCollectionIds = [Namespaces.OrderedItemList.CloudSavedStickers, Namespaces.OrderedItemList.CloudRecentStickers, Namespaces.OrderedItemList.CloudAllPremiumStickers]
+        }
 
         let strings = context.sharedContext.currentPresentationData.with({ $0 }).strings
 

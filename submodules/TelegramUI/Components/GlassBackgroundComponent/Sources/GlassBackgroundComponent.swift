@@ -457,26 +457,31 @@ public class GlassBackgroundView: UIView {
             nativeView.overrideUserInterfaceStyle = isDark ? .dark : .light
         }
         if let legacyView = self.legacyView {
-            switch shape {
-            case let .roundedRect(cornerRadius):
-                let style: LegacyGlassView.Style
-                switch tintColor.kind {
-                case .panel:
-                    style = .normal
-                case .clear:
-                    style = .clear
-                case let .custom(styleValue, _):
-                    switch styleValue {
+            if sharedLiteModeEnabled {
+                legacyView.isHidden = true
+            } else {
+                legacyView.isHidden = false
+                switch shape {
+                case let .roundedRect(cornerRadius):
+                    let style: LegacyGlassView.Style
+                    switch tintColor.kind {
+                    case .panel:
+                        style = .normal
                     case .clear:
                         style = .clear
-                    case .default:
-                        style = .normal
+                    case let .custom(styleValue, _):
+                        switch styleValue {
+                        case .clear:
+                            style = .clear
+                        case .default:
+                            style = .normal
+                        }
                     }
+                    legacyView.update(size: size, cornerRadius: cornerRadius, style: style, transition: transition)
                 }
-                legacyView.update(size: size, cornerRadius: cornerRadius, style: style, transition: transition)
+                transition.setAlpha(view: legacyView, alpha: isVisible ? 1.0 : 0.0)
             }
             transition.setFrame(view: legacyView, frame: CGRect(origin: CGPoint(), size: size))
-            transition.setAlpha(view: legacyView, alpha: isVisible ? 1.0 : 0.0)
             
             transition.setPosition(view: self.contentView, position: CGPoint(x: size.width * 0.5, y: size.height * 0.5))
             transition.setBounds(view: self.contentView, bounds: CGRect(origin: CGPoint(), size: size))
@@ -661,6 +666,13 @@ public class GlassBackgroundView: UIView {
         transition.setFrame(view: self.maskContainerView, frame: CGRect(origin: CGPoint(), size: CGSize(width: size.width + shadowInset * 2.0, height: size.height + shadowInset * 2.0)))
         transition.setFrame(view: self.maskContentView, frame: CGRect(origin: CGPoint(x: shadowInset, y: shadowInset), size: size))
         if let foregroundView = self.foregroundView {
+            if sharedLiteModeEnabled {
+                foregroundView.mask = nil
+                self.maskContainerView.isHidden = true
+            } else {
+                foregroundView.mask = self.maskContainerView
+                self.maskContainerView.isHidden = false
+            }
             transition.setFrame(view: foregroundView, frame: CGRect(origin: CGPoint(), size: size).insetBy(dx: -shadowInset, dy: -shadowInset))
         }
         if let shadowView = self.shadowView {

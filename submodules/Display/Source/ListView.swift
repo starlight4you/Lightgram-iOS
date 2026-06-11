@@ -221,11 +221,11 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
         }
     }
     
-    private final var invisibleInset: CGFloat = 500.0
+    private final var invisibleInset: CGFloat = listPreloadInset(preloadPages: true)
     public var preloadPages: Bool = true {
         didSet {
             if self.preloadPages != oldValue {
-                self.invisibleInset = self.preloadPages ? 500.0 : 20.0
+                self.invisibleInset = listPreloadInset(preloadPages: self.preloadPages)
                 //self.invisibleInset = self.preloadPages ? 20.0 : 20.0
                 if self.preloadPages {
                     self.enqueueUpdateVisibleItems(synchronous: false)
@@ -443,7 +443,7 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
                         let displayLink = CADisplayLink(target: DisplayLinkTarget({
                         }), selector: #selector(DisplayLinkTarget.event))
                         if #available(iOS 15.0, *) {
-                            displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: Float(UIScreen.main.maximumFramesPerSecond), maximum: Float(UIScreen.main.maximumFramesPerSecond), preferred: Float(UIScreen.main.maximumFramesPerSecond))
+                            displayLink.preferredFrameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: Float(UIScreen.main.maximumFramesPerSecond), preferHighRefresh: false)
                         }
                         displayLink.add(to: RunLoop.main, forMode: .common)
                         self.auxiliaryDisplayLink = displayLink
@@ -556,7 +556,8 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
         self.displayLink.add(to: RunLoop.main, forMode: RunLoop.Mode.common)
         
         if #available(iOS 15.0, iOSApplicationExtension 15.0, *) {
-            self.displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 60.0, maximum: 120.0, preferred: 120.0)
+            let maxFps = Float(UIScreen.main.maximumFramesPerSecond)
+            self.displayLink?.preferredFrameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: maxFps, preferHighRefresh: true)
         }
         
         self.displayLink.isPaused = true
@@ -3631,7 +3632,7 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
                             springAnimation.isAdditive = true
                             springAnimation.fillMode = CAMediaTimingFillMode.forwards
                             if #available(iOS 15.0, *) {
-                                springAnimation.preferredFrameRateRange = CAFrameRateRange(minimum: Float(UIScreen.main.maximumFramesPerSecond), maximum: Float(UIScreen.main.maximumFramesPerSecond), preferred: Float(UIScreen.main.maximumFramesPerSecond))
+                                springAnimation.preferredFrameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: Float(UIScreen.main.maximumFramesPerSecond), preferHighRefresh: false)
                             }
                             
                             let k = Float(UIView.animationDurationFactor())
@@ -3665,7 +3666,7 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
                             basicAnimation.isRemovedOnCompletion = true
                             basicAnimation.isAdditive = true
                             if #available(iOS 15.0, *) {
-                                basicAnimation.preferredFrameRateRange = CAFrameRateRange(minimum: Float(UIScreen.main.maximumFramesPerSecond), maximum: Float(UIScreen.main.maximumFramesPerSecond), preferred: Float(UIScreen.main.maximumFramesPerSecond))
+                                basicAnimation.preferredFrameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: Float(UIScreen.main.maximumFramesPerSecond), preferHighRefresh: false)
                             }
 
                             let reverseBasicAnimation = CABasicAnimation(keyPath: "sublayerTransform")
@@ -3676,7 +3677,7 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
                             reverseBasicAnimation.isRemovedOnCompletion = true
                             reverseBasicAnimation.isAdditive = true
                             if #available(iOS 15.0, *) {
-                                reverseBasicAnimation.preferredFrameRateRange = CAFrameRateRange(minimum: Float(UIScreen.main.maximumFramesPerSecond), maximum: Float(UIScreen.main.maximumFramesPerSecond), preferred: Float(UIScreen.main.maximumFramesPerSecond))
+                                reverseBasicAnimation.preferredFrameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: Float(UIScreen.main.maximumFramesPerSecond), preferHighRefresh: false)
                             }
 
                             animation = basicAnimation
@@ -3693,7 +3694,7 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
                                 basicAnimation.isRemovedOnCompletion = true
                                 basicAnimation.isAdditive = true
                                 if #available(iOS 15.0, *) {
-                                    basicAnimation.preferredFrameRateRange = CAFrameRateRange(minimum: Float(UIScreen.main.maximumFramesPerSecond), maximum: Float(UIScreen.main.maximumFramesPerSecond), preferred: Float(UIScreen.main.maximumFramesPerSecond))
+                                    basicAnimation.preferredFrameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: Float(UIScreen.main.maximumFramesPerSecond), preferHighRefresh: false)
                                 }
                                 
                                 let reverseBasicAnimation = CABasicAnimation(keyPath: "sublayerTransform")
@@ -3704,7 +3705,7 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
                                 reverseBasicAnimation.isRemovedOnCompletion = true
                                 reverseBasicAnimation.isAdditive = true
                                 if #available(iOS 15.0, *) {
-                                    reverseBasicAnimation.preferredFrameRateRange = CAFrameRateRange(minimum: Float(UIScreen.main.maximumFramesPerSecond), maximum: Float(UIScreen.main.maximumFramesPerSecond), preferred: Float(UIScreen.main.maximumFramesPerSecond))
+                                    reverseBasicAnimation.preferredFrameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: Float(UIScreen.main.maximumFramesPerSecond), preferHighRefresh: false)
                                 }
                                 
                                 animation = basicAnimation
@@ -3721,7 +3722,7 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
                                 basicAnimation.isRemovedOnCompletion = true
                                 basicAnimation.isAdditive = true
                                 if #available(iOS 15.0, *) {
-                                    basicAnimation.preferredFrameRateRange = CAFrameRateRange(minimum: Float(UIScreen.main.maximumFramesPerSecond), maximum: Float(UIScreen.main.maximumFramesPerSecond), preferred: Float(UIScreen.main.maximumFramesPerSecond))
+                                    basicAnimation.preferredFrameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: Float(UIScreen.main.maximumFramesPerSecond), preferHighRefresh: false)
                                 }
                                 
                                 let reverseBasicAnimation = CABasicAnimation(keyPath: "sublayerTransform")
@@ -3732,7 +3733,7 @@ open class ListViewImpl: ASDisplayNode, ListView, ASScrollViewDelegate, ASGestur
                                 reverseBasicAnimation.isRemovedOnCompletion = true
                                 reverseBasicAnimation.isAdditive = true
                                 if #available(iOS 15.0, *) {
-                                    reverseBasicAnimation.preferredFrameRateRange = CAFrameRateRange(minimum: Float(UIScreen.main.maximumFramesPerSecond), maximum: Float(UIScreen.main.maximumFramesPerSecond), preferred: Float(UIScreen.main.maximumFramesPerSecond))
+                                    reverseBasicAnimation.preferredFrameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: Float(UIScreen.main.maximumFramesPerSecond), preferHighRefresh: false)
                                 }
                                 
                                 animation = basicAnimation

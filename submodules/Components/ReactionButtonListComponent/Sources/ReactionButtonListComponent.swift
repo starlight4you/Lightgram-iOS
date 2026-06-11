@@ -1760,10 +1760,12 @@ private final class StarsReactionCounterView: UIView {
         if let labelView = self.label.view {
             if labelView.superview == nil {
                 self.portalSource.addSubview(labelView)
-                labelView.layer.shadowColor = UIColor.black.cgColor
-                labelView.layer.shadowOffset = CGSize(width: 0.0, height: 1.0)
-                labelView.layer.shadowOpacity = 0.45
-                labelView.layer.shadowRadius = 9.0
+                if !sharedLiteModeEnabled {
+                    labelView.layer.shadowColor = UIColor.black.cgColor
+                    labelView.layer.shadowOffset = CGSize(width: 0.0, height: 1.0)
+                    labelView.layer.shadowOpacity = 0.45
+                    labelView.layer.shadowRadius = 9.0
+                }
             }
             
             transition.setFrame(view: labelView, frame: labelFrame)

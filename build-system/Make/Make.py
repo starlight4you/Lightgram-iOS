@@ -46,6 +46,7 @@ class BazelCommandLine:
         self.show_actions = False
         self.enable_sandbox = False
         self.disable_provisioning_profiles = False
+        self.disable_extensions = False
         self.profile_swift = False
 
         self.common_args = [
@@ -132,6 +133,9 @@ class BazelCommandLine:
 
     def set_disable_provisioning_profiles(self):
         self.disable_provisioning_profiles = True
+
+    def set_disable_extensions(self, value):
+        self.disable_extensions = value
 
     def set_profile_swift(self, value):
         self.profile_swift = value
@@ -275,6 +279,9 @@ class BazelCommandLine:
 
         if self.disable_provisioning_profiles:
             combined_arguments += ['--//Telegram:disableProvisioningProfiles']
+
+        if self.disable_extensions:
+            combined_arguments += ['--//Telegram:disableExtensions']
 
         combined_arguments += self.common_args
         combined_arguments += self.common_build_args
@@ -618,6 +625,9 @@ def build(bazel, arguments):
 
     bazel_command_line.set_split_swiftmodules(arguments.enableParallelSwiftmoduleGeneration)
 
+    if getattr(arguments, 'disableExtensions', False):
+        bazel_command_line.set_disable_extensions(True)
+
     bazel_command_line.invoke_build()
 
     if arguments.outputBuildArtifactsPath is not None:
@@ -949,6 +959,12 @@ if __name__ == '__main__':
         metavar='number'
     )
     add_project_and_build_common_arguments(buildParser)
+    buildParser.add_argument(
+        '--disableExtensions',
+        action='store_true',
+        default=False,
+        help='Build without app extensions (required for free Apple Developer accounts).'
+    )
     buildParser.add_argument(
         '--configuration',
         choices=[

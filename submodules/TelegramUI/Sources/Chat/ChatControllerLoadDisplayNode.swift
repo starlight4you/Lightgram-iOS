@@ -640,11 +640,25 @@ extension ChatControllerImpl {
         let initTimestamp = self.initTimestamp
         #endif
         
-        self.ready.set(combineLatest(queue: .mainQueue(), [
-            self.contentDataReady.get(),
-            self.wallpaperReady.get(),
-            self.presentationReady.get()
-        ])
+        if sharedLiteModeEnabled {
+            self.wallpaperReady.set(.single(true))
+        }
+        
+        let readySignals: [Signal<Bool, NoError>]
+        if sharedLiteModeEnabled {
+            readySignals = [
+                self.contentDataReady.get(),
+                self.presentationReady.get()
+            ]
+        } else {
+            readySignals = [
+                self.contentDataReady.get(),
+                self.wallpaperReady.get(),
+                self.presentationReady.get()
+            ]
+        }
+        
+        self.ready.set(combineLatest(queue: .mainQueue(), readySignals)
         |> map { values in
             return !values.contains(where: { !$0 })
         }
@@ -654,6 +668,7 @@ extension ChatControllerImpl {
         |> beforeNext { value in
             if measure_isFirstTime {
                 measure_isFirstTime = false
+                logChatOpenTiming("T3_chatControllerReady")
                 #if DEBUG
                 let deltaTime = (CFAbsoluteTimeGetCurrent() - initTimestamp) * 1000.0
                 print("Chat controller init to ready: \(deltaTime) ms")

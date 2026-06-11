@@ -24,6 +24,10 @@ public final class NavigationBackgroundNode: ASDisplayNode {
 
     private var validLayout: (CGSize, CGFloat)?
     
+    /// When blur is disabled (Lite Mode), keep the theme dim alpha instead of forcing opacity to 1.0.
+    /// Used by context menus; navigation bars should leave this `false`.
+    public var keepTransparentWhenBlurDisabled: Bool = false
+    
     public var backgroundCornerRadius: CGFloat {
         if let (_, cornerRadius) = self.validLayout {
             return cornerRadius
@@ -64,7 +68,7 @@ public final class NavigationBackgroundNode: ASDisplayNode {
             self.scheduledUpdate = true
             return
         }
-        if self.enableBlur && !sharedIsReduceTransparencyEnabled && ((self._color.alpha > .ulpOfOne && self._color.alpha < 0.95) || forceKeepBlur) {
+        if self.enableBlur && !sharedIsReduceTransparencyEnabled && !sharedDisableBlur && ((self._color.alpha > .ulpOfOne && self._color.alpha < 0.95) || forceKeepBlur) {
             if self.effectView == nil {
                 let effectView = UIVisualEffectView(effect: UIBlurEffect(style: .light))
 
@@ -123,7 +127,7 @@ public final class NavigationBackgroundNode: ASDisplayNode {
         self.enableBlur = effectiveEnableBlur
         self.enableSaturation = effectiveEnableSaturation
 
-        if sharedIsReduceTransparencyEnabled {
+        if sharedIsReduceTransparencyEnabled || (sharedDisableBlur && !self.keepTransparentWhenBlurDisabled) {
             transition.updateBackgroundColor(node: self.backgroundNode, color: self._color.withAlphaComponent(1.0))
         } else {
             transition.updateBackgroundColor(node: self.backgroundNode, color: self._color)
@@ -186,6 +190,9 @@ open class BlurredBackgroundView: UIView {
 
     private var validLayout: (CGSize, CGFloat)?
     
+    /// When blur is disabled (Lite Mode), keep the theme dim alpha instead of forcing opacity to 1.0.
+    public var keepTransparentWhenBlurDisabled: Bool = false
+    
     public var backgroundCornerRadius: CGFloat {
         if let (_, cornerRadius) = self.validLayout {
             return cornerRadius
@@ -215,7 +222,7 @@ open class BlurredBackgroundView: UIView {
     }
     
     private func updateBackgroundBlur(forceKeepBlur: Bool) {
-        if let color = self._color, self.enableBlur && !sharedIsReduceTransparencyEnabled && ((color.alpha > .ulpOfOne && color.alpha < 0.95) || forceKeepBlur) {
+        if let color = self._color, self.enableBlur && !sharedIsReduceTransparencyEnabled && !sharedDisableBlur && ((color.alpha > .ulpOfOne && color.alpha < 0.95) || forceKeepBlur) {
             if self.effectView == nil {
                 let effectView = UIVisualEffectView(effect: UIBlurEffect(style: .light))
 
@@ -271,7 +278,7 @@ open class BlurredBackgroundView: UIView {
         self._color = color
         self.enableBlur = effectiveEnableBlur
 
-        if sharedIsReduceTransparencyEnabled {
+        if sharedIsReduceTransparencyEnabled || (sharedDisableBlur && !self.keepTransparentWhenBlurDisabled) {
             transition.updateBackgroundColor(layer: self.backgroundView.layer, color: color.withAlphaComponent(1.0))
         } else {
             transition.updateBackgroundColor(layer: self.backgroundView.layer, color: color)

@@ -9,6 +9,9 @@ import AvatarNode
 
 public extension StoryContainerScreen {
     static func openArchivedStories(context: AccountContext, parentController: ViewController, avatarNode: AvatarNode, sharedProgressDisposable: MetaDisposable?) {
+        if sharedLiteModeEnabled {
+            return
+        }
         let storyContent = StoryContentContextImpl(context: context, isHidden: true, focusedPeerId: nil, singlePeer: false)
         let signal = storyContent.state
         |> take(1)
@@ -89,6 +92,9 @@ public extension StoryContainerScreen {
     }
     
     static func openPeerStories(context: AccountContext, peerId: EnginePeer.Id, parentController: ViewController, avatarNode: AvatarNode?, sharedProgressDisposable: MetaDisposable? = nil) {
+        if sharedLiteModeEnabled {
+            return
+        }
         return openPeerStoriesCustom(
             context: context,
             peerId: peerId,
@@ -174,6 +180,9 @@ public extension StoryContainerScreen {
         setProgress: @escaping (Signal<Never, NoError>) -> Void,
         completion: @escaping (StoryContainerScreen) -> Void = { _ in }
     ) {
+        if sharedLiteModeEnabled {
+            return
+        }
         let storyContent = StoryContentContextImpl(context: context, isHidden: isHidden, focusedPeerId: peerId, focusedStoryId: focusOnId, singlePeer: singlePeer, fixedOrder: initialOrder)
         let signal = storyContent.state
         |> take(1)

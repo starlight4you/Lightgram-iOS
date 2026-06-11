@@ -1577,7 +1577,7 @@ final class UndoOverlayControllerNode: ViewControllerTracingNode {
 
         self.panelWrapperNode = ASDisplayNode()
         
-        self.effectView = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        self.effectView = UIVisualEffectView(effect: sharedDisableBlur ? nil : UIBlurEffect(style: .dark))
         
         super.init()
         

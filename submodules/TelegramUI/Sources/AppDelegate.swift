@@ -280,6 +280,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     private let firebaseRequestVerificationSecretStream = Promise<[String: String]>([:])
     
     private var urlSessions: [URLSession] = []
+    private var launchStartTime: CFAbsoluteTime = 0
+    private var didSchedulePostFirstFrameStartupWork = false
+    private var appRootPath: String?
+    
     private func urlSession(identifier: String) -> URLSession {
         if let existingSession = self.urlSessions.first(where: { $0.configuration.identifier == identifier }) {
             return existingSession
@@ -331,7 +335,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             self.regularDeviceToken.set(.single(token))
         })
         
-        let launchStartTime = CFAbsoluteTimeGetCurrent()
+        self.launchStartTime = CFAbsoluteTimeGetCurrent()
+        sharedLaunchStartTime = self.launchStartTime
+        logColdStartTiming("T0_didFinishLaunching")
         
         defaultNavigationBarImpl = { presentationData in
             return NavigationBarImpl(presentationData: presentationData)
@@ -530,6 +536,17 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         let appGroupName = "group.\(baseAppBundleId)"
         let maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
         
+        let containerBaseUrl: URL
+        if let appGroupUrl = maybeAppGroupUrl {
+            containerBaseUrl = appGroupUrl
+        } else if let appSupportUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            containerBaseUrl = appSupportUrl.appendingPathComponent("telegram-container", isDirectory: true)
+            try? FileManager.default.createDirectory(at: containerBaseUrl, withIntermediateDirectories: true)
+        } else {
+            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
+            return true
+        }
+        
         let buildConfig = BuildConfig(baseAppBundleId: baseAppBundleId)
         self.buildConfig = buildConfig
         let signatureDict = BuildConfigExtra.signatureDict()
@@ -640,11 +657,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             isICloudEnabled: buildConfig.isICloudEnabled
         )
         
-        guard let appGroupUrl = maybeAppGroupUrl else {
-            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
-            return true
-        }
-        
         var isDebugConfiguration = false
         #if DEBUG
         isDebugConfiguration = true
@@ -664,14 +676,15 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
 
         let rootPath: String
         if isUITest {
-            let testDataPath = appGroupUrl.path + "/telegram-ui-tests-data"
+            let testDataPath = containerBaseUrl.path + "/telegram-ui-tests-data"
             let _ = try? FileManager.default.removeItem(atPath: testDataPath)
             rootPath = rootPathForBasePath(testDataPath)
         } else {
-            rootPath = rootPathForBasePath(appGroupUrl.path)
+            rootPath = rootPathForBasePath(containerBaseUrl.path)
         }
+        self.appRootPath = rootPath
         if !isUITest {
-            performAppGroupUpgrades(appGroupPath: appGroupUrl.path, rootPath: rootPath)
+            performAppGroupUpgrades(appGroupPath: containerBaseUrl.path, rootPath: rootPath)
         }
         
         let deviceSpecificEncryptionParameters = BuildConfig.deviceSpecificEncryptionParameters(rootPath, baseAppBundleId: baseAppBundleId)
@@ -713,17 +726,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             return true
         }
         
-        let legacyLogs: [String] = [
-            "broadcast-logs",
-            "siri-logs",
-            "widget-logs",
-            "notificationcontent-logs",
-            "notification-logs"
-        ]
-        for item in legacyLogs {
-            let _ = try? FileManager.default.removeItem(atPath: "\(rootPath)/\(item)")
-        }
-        
         let logsPath = rootPath + "/logs/app-logs"
         let _ = try? FileManager.default.createDirectory(atPath: logsPath, withIntermediateDirectories: true, attributes: nil)
         Logger.setSharedLogger(Logger(rootPath: rootPath, basePath: logsPath))
@@ -732,25 +734,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             Logger.shared.log("ManagedAudioSession", s)
             Logger.shared.shortLog("ManagedAudioSession", s)
         })
-        
-        if let contents = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: rootPath + "/accounts-metadata"), includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants]) {
-            for url in contents {
-                Logger.shared.log("App \(self.episodeId)", "metadata: \(url.path)")
-            }
-        }
-        
-        if let contents = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: rootPath), includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants]) {
-            for url in contents {
-                Logger.shared.log("App \(self.episodeId)", "root: \(url.path)")
-                if url.lastPathComponent.hasPrefix("account-") {
-                    if let subcontents = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants]) {
-                        for suburl in subcontents {
-                            Logger.shared.log("App \(self.episodeId)", "account \(url.lastPathComponent): \(suburl.path)")
-                        }
-                    }
-                }
-            }
-        }
         
         //ASDisableLogging()
         
@@ -793,7 +776,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             |> distinctUntilChanged
         )
         
-        let applicationBindings = TelegramApplicationBindings(isMainApp: true, appBundleId: baseAppBundleId, appBuildType: buildConfig.isAppStoreBuild ? .public : .internal, containerPath: appGroupUrl.path, appSpecificScheme: buildConfig.appSpecificUrlScheme, openUrl: { url in
+        let applicationBindings = TelegramApplicationBindings(isMainApp: true, appBundleId: baseAppBundleId, appBuildType: buildConfig.isAppStoreBuild ? .public : .internal, containerPath: containerBaseUrl.path, appSpecificScheme: buildConfig.appSpecificUrlScheme, openUrl: { url in
             var parsedUrl = URL(string: url)
             if let parsed = parsedUrl {
                 if parsed.scheme == nil || parsed.scheme!.isEmpty {
@@ -1010,6 +993,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         
         let accountManager = AccountManager<TelegramAccountManagerTypes>(basePath: rootPath + "/accounts-metadata", isTemporary: false, isReadOnly: false, useCaches: true, removeDatabaseOnError: true)
         self.accountManager = accountManager
+        logColdStartTiming("AccountManager_ready")
 
         telegramUIDeclareEncodables()
         initializeAccountManagement()
@@ -1078,7 +1062,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         |> mapToSignal { accountManager, initialPresentationDataAndSettings -> Signal<(SharedApplicationContext, LoggingSettings), NoError> in
             self.mainWindow?.hostView.containerView.backgroundColor =  initialPresentationDataAndSettings.presentationData.theme.chatList.backgroundColor
             
-            let legacyBasePath = appGroupUrl.path
+            let legacyBasePath = containerBaseUrl.path
             
             let presentationDataPromise = Promise<PresentationData>()
             let appLockContext = AppLockContextImpl(rootPath: rootPath, window: self.mainWindow!, rootController: self.window?.rootViewController, applicationBindings: applicationBindings, accountManager: accountManager, presentationDataSignal: presentationDataPromise.get(), lockIconInitialFrame: {
@@ -1107,6 +1091,8 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                     }
                 }
             }, appDelegate: self, testingEnvironment: isUITest)
+            
+            logColdStartTiming("SharedAccountContext_ready")
             
             presentationDataPromise.set(sharedContext.presentationData)
             
@@ -1340,10 +1326,13 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                     if readyTime > 0.5 {
                         print("Application: context took \(readyTime) to become ready")
                     }
-                    print("Launch to ready took \((CFAbsoluteTimeGetCurrent() - launchStartTime) * 1000.0) ms")
+                    print("Launch to ready took \((CFAbsoluteTimeGetCurrent() - self.launchStartTime) * 1000.0) ms")
+                    logColdStartTiming("T1_rootControllerAttached")
 
                     self.mainWindow.debugAction = nil
                     self.mainWindow.viewController = context.rootController
+                    
+                    self.schedulePostFirstFrameStartupWork()
                     
                     if firstTime {
                         let layer = context.rootController.view.layer
@@ -1584,7 +1573,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         
         let timestamp = Int(CFAbsoluteTimeGetCurrent())
         let minReindexTimestamp = timestamp - 2 * 24 * 60 * 60
-        if let indexTimestamp = UserDefaults.standard.object(forKey: "TelegramCacheIndexTimestamp_v2") as? NSNumber, indexTimestamp.intValue >= minReindexTimestamp {
+        if sharedDeferStartupWarmups {
+            UserDefaults.standard.set(timestamp as NSNumber, forKey: "TelegramDeferredCacheReindexTimestamp_v2")
+        } else if let indexTimestamp = UserDefaults.standard.object(forKey: "TelegramCacheIndexTimestamp_v2") as? NSNumber, indexTimestamp.intValue >= minReindexTimestamp {
         } else {
             UserDefaults.standard.set(timestamp as NSNumber, forKey: "TelegramCacheIndexTimestamp_v2")
             
@@ -3146,6 +3137,74 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 })
             }
         }).start()
+    }
+    
+    private func schedulePostFirstFrameStartupWork() {
+        guard !self.didSchedulePostFirstFrameStartupWork else {
+            return
+        }
+        self.didSchedulePostFirstFrameStartupWork = true
+        
+        logColdStartTiming("T2_postFirstFrameWorkStart")
+        
+        if let rootPath = self.appRootPath {
+            self.performDeferredLaunchDiagnostics(rootPath: rootPath)
+        }
+        
+        if sharedDeferStartupWarmups {
+            let timestamp = Int(CFAbsoluteTimeGetCurrent())
+            let minReindexTimestamp = timestamp - 2 * 24 * 60 * 60
+            if let indexTimestamp = UserDefaults.standard.object(forKey: "TelegramDeferredCacheReindexTimestamp_v2") as? NSNumber, indexTimestamp.intValue >= minReindexTimestamp {
+            } else {
+                UserDefaults.standard.set(timestamp as NSNumber, forKey: "TelegramCacheIndexTimestamp_v2")
+                Logger.shared.log("App \(self.episodeId)", "Executing deferred low-impact cache reindex")
+                let _ = self.runCacheReindexTasks(lowImpact: true, completion: {
+                    Logger.shared.log("App \(self.episodeId)", "Executing deferred low-impact cache reindex — done")
+                })
+            }
+        }
+        
+        if let sharedContext = self.contextValue?.context.sharedContext as? SharedAccountContextImpl {
+            sharedContext.openDeferredSecondaryAccounts()
+            sharedContext.initializeDeferredDeviceManagersIfNeeded()
+            sharedContext.initializeDeferredCallManagerIfNeeded()
+        }
+        
+        if let rootController = self.contextValue?.rootController as? TelegramRootController {
+            rootController.scheduleDeferredTabWarmup()
+        }
+    }
+    
+    private func performDeferredLaunchDiagnostics(rootPath: String) {
+        let legacyLogs: [String] = [
+            "broadcast-logs",
+            "siri-logs",
+            "widget-logs",
+            "notificationcontent-logs",
+            "notification-logs"
+        ]
+        for item in legacyLogs {
+            let _ = try? FileManager.default.removeItem(atPath: "\(rootPath)/\(item)")
+        }
+        
+        if let contents = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: rootPath + "/accounts-metadata"), includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants]) {
+            for url in contents {
+                Logger.shared.log("App \(self.episodeId)", "metadata: \(url.path)")
+            }
+        }
+        
+        if let contents = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: rootPath), includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants]) {
+            for url in contents {
+                Logger.shared.log("App \(self.episodeId)", "root: \(url.path)")
+                if url.lastPathComponent.hasPrefix("account-") {
+                    if let subcontents = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants]) {
+                        for suburl in subcontents {
+                            Logger.shared.log("App \(self.episodeId)", "account \(url.lastPathComponent): \(suburl.path)")
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

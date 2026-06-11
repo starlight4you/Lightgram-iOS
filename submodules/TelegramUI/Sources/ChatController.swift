@@ -7259,6 +7259,10 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     
     override public func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        
+        if !self.alwaysShowSearchResultsAsList {
+            self.chatDisplayNode.loadInputPanels(theme: self.presentationInterfaceState.theme, strings: self.presentationInterfaceState.strings, fontSize: self.presentationInterfaceState.fontSize)
+        }
                 
         if self.willAppear {
             self.chatDisplayNode.historyNode.refreshPollActionsForVisibleMessages()

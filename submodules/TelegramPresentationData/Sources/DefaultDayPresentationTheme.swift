@@ -36,6 +36,9 @@ public func dateFillNeedsBlur(theme: PresentationTheme, wallpaper: TelegramWallp
     if !DeviceMetrics.performance.isGraphicallyCapable {
         return false
     }
+    if sharedDisableBlur {
+        return false
+    }
     
     if case .builtin = wallpaper {
         return false

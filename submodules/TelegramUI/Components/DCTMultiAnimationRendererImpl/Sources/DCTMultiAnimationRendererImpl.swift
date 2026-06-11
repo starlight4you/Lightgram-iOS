@@ -871,10 +871,14 @@ public final class DCTMultiAnimationRendererImpl: MultiAnimationRenderer {
 
         func animationTick(advanceTimestamp: Double) -> [LoadFrameGroupTask] {
             var tasks: [LoadFrameGroupTask] = []
+            var activeBudget = sharedLiteModeEnabled ? liteModeMaxSimultaneousEmojiAnimations : Int.max
             for (_, itemContext) in self.itemContexts {
                 if itemContext.isPlaying {
-                    if let task = itemContext.animationTick(advanceTimestamp: advanceTimestamp) {
-                        tasks.append(task)
+                    if activeBudget > 0 {
+                        activeBudget -= 1
+                        if let task = itemContext.animationTick(advanceTimestamp: advanceTimestamp) {
+                            tasks.append(task)
+                        }
                     }
                 }
             }

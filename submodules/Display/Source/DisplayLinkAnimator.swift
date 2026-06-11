@@ -169,16 +169,18 @@ public final class SharedDisplayLinkDriver {
                     switch maxFramesPerSecond {
                     case let .fps(fps):
                         if fps > 60 {
-                            frameRateRange = CAFrameRateRange(minimum: 30.0, maximum: 120.0, preferred: 120.0)
+                            frameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: maxFps, preferHighRefresh: true)
                         } else {
                             frameRateRange = .default
                         }
                     case .max:
-                        frameRateRange = CAFrameRateRange(minimum: 30.0, maximum: 120.0, preferred: 120.0)
+                        frameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: maxFps, preferHighRefresh: true)
                     }
                     
-                    if isIpad {
+                    if isIpad && !sharedLiteModeEnabled {
                         frameRateRange = CAFrameRateRange(minimum: 30.0, maximum: 120.0, preferred: 120.0)
+                    } else if isIpad && sharedLiteModeEnabled {
+                        frameRateRange = preferredFrameRateRangeForLiteMode(screenMaxFps: maxFps, preferHighRefresh: true)
                     }
                     
                     if displayLink.preferredFrameRateRange != frameRateRange {

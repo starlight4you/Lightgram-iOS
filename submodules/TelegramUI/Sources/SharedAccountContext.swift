@@ -115,6 +115,21 @@ private final class AccountUserInterfaceInUseContext {
     }
 }
 
+/// Mirrors the persisted Lite Mode preference into the `Display`-module process
+/// globals so blur / animation gates spread across submodules can read it
+/// without taking a dependency on `TelegramUIPreferences`.
+///
+/// `liteMode == nil` (the default) means "auto-detect" via `DeviceMetrics`.
+/// `liteMode == true` / `false` means the user explicitly chose On / Off.
+private func applyLiteModeFlags(settings: ExperimentalUISettings) {
+    let effectiveLiteMode = settings.liteMode ?? DeviceMetrics.performance.isLowEndDevice
+    sharedLiteModeEnabled = effectiveLiteMode
+    sharedDisableBlur = effectiveLiteMode
+    sharedDisableBackgroundAnimation = effectiveLiteMode || settings.disableBackgroundAnimation
+    sharedDeferStartupWarmups = effectiveLiteMode
+    sharedReducedHistoryPreloadDelays = effectiveLiteMode
+}
+
 typealias AccountInitialData = (limitsConfiguration: LimitsConfiguration?, contentSettings: ContentSettings?, appConfiguration: AppConfiguration?, availableReplyColors: EngineAvailableColorOptions, availableProfileColors: EngineAvailableColorOptions)
 
 private struct AccountAttributes: Equatable {
@@ -141,6 +156,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
     public let applicationBindings: TelegramApplicationBindings
     public let sharedContainerPath: String
     public let basePath: String
+    private let encryptionParameters: ValueBoxEncryptionParameters
     public let networkArguments: NetworkInitializationArguments
     public let accountManager: AccountManager<TelegramAccountManagerTypes>
     public let appLockContext: AppLockContext
@@ -186,8 +202,8 @@ public final class SharedAccountContextImpl: SharedAccountContext {
     private let registeredNotificationTokensDisposable = MetaDisposable()
     
     public let mediaManager: MediaManager
-    public let contactDataManager: DeviceContactDataManager?
-    public let locationManager: DeviceLocationManager?
+    public var contactDataManager: DeviceContactDataManager?
+    public var locationManager: DeviceLocationManager?
     public var callManager: PresentationCallManager?
     let hasInAppPurchases: Bool
     let testingEnvironment: Bool
@@ -291,6 +307,13 @@ public final class SharedAccountContextImpl: SharedAccountContext {
     
     private var invalidatedApsToken: Data?
     
+    private var pendingSecondaryAccountRecords: [AccountRecordId: AccountAttributes] = [:]
+    private var deferredSecondaryAccountsDisposable = MetaDisposable()
+    private var deferredCallManagerSetup = false
+    private var deferredDeviceManagersInitialized = false
+    private var contactDataManagerDisplayOrderDisposable = MetaDisposable()
+    private let setNotificationCallImpl: (PresentationCall?) -> Void
+    
     private let energyUsageAutomaticDisposable = MetaDisposable()
     
     init(mainWindow: Window1?, sharedContainerPath: String, basePath: String, encryptionParameters: ValueBoxEncryptionParameters, accountManager: AccountManager<TelegramAccountManagerTypes>, appLockContext: AppLockContext, notificationController: NotificationContainerController?, applicationBindings: TelegramApplicationBindings, initialPresentationDataAndSettings: InitialPresentationDataAndSettings, networkArguments: NetworkInitializationArguments, hasInAppPurchases: Bool, rootPath: String, legacyBasePath: String?, apsNotificationToken: Signal<Data?, NoError>, voipNotificationToken: Signal<Data?, NoError>, firebaseSecretStream: Signal<[String: String], NoError>, setNotificationCall: @escaping (PresentationCall?) -> Void, navigateToChat: @escaping (AccountRecordId, PeerId, MessageId?, Bool) -> Void, displayUpgradeProgress: @escaping (Float?) -> Void = { _ in }, appDelegate: AppDelegate?, testingEnvironment: Bool = false) {
@@ -300,10 +323,12 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         testHasInstance = true
         
         self.appDelegate = appDelegate
+        self.setNotificationCallImpl = setNotificationCall
         self.mainWindow = mainWindow
         self.applicationBindings = applicationBindings
         self.sharedContainerPath = sharedContainerPath
         self.basePath = basePath
+        self.encryptionParameters = encryptionParameters
         self.networkArguments = networkArguments
         self.accountManager = accountManager
         self.navigateToChatImpl = navigateToChat
@@ -339,8 +364,13 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         })
                 
         if applicationBindings.isMainApp {
-            self.locationManager = DeviceLocationManager(queue: Queue.mainQueue())
-            self.contactDataManager = DeviceContactDataManagerImpl(accountManager: accountManager)
+            if sharedDeferStartupWarmups {
+                self.locationManager = nil
+                self.contactDataManager = nil
+            } else {
+                self.locationManager = DeviceLocationManager(queue: Queue.mainQueue())
+                self.contactDataManager = DeviceContactDataManagerImpl(accountManager: accountManager)
+            }
         } else {
             self.locationManager = nil
             self.contactDataManager = nil
@@ -513,6 +543,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         let _ = immediateExperimentalUISettingsValue.swap(initialPresentationDataAndSettings.experimentalUISettings)
         
         GlassBackgroundView.useCustomGlassImpl = immediateExperimentalUISettingsValue.with({ $0.fakeGlass })
+        applyLiteModeFlags(settings: initialPresentationDataAndSettings.experimentalUISettings)
         
         self.experimentalUISettingsDisposable = (self.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.experimentalUISettings])
         |> deliverOnMainQueue).start(next: { sharedData in
@@ -521,22 +552,17 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 
                 flatBuffers_checkedGet = settings.checkSerializedData
                 GlassBackgroundView.useCustomGlassImpl = settings.fakeGlass
+                applyLiteModeFlags(settings: settings)
             }
         })
         
-        let _ = self.contactDataManager?.personNameDisplayOrder().start(next: { order in
-            let _ = updateContactSettingsInteractively(accountManager: accountManager, { settings in
-                var settings = settings
-                settings.nameDisplayOrder = order
-                return settings
-            }).start()
-        })
+        self.subscribeContactDataManagerDisplayOrder(accountManager: accountManager)
         
         self.automaticMediaDownloadSettingsDisposable.set(self._automaticMediaDownloadSettings.get().start(next: { [weak self] next in
             if let strongSelf = self {
                 strongSelf.currentAutomaticMediaDownloadSettings = next
                 
-                if automaticEnergyUsageShouldBeOnNow(settings: next) {
+                if sharedLiteModeEnabled || automaticEnergyUsageShouldBeOnNow(settings: next) {
                     strongSelf.energyUsageSettings = EnergyUsageSettings.powerSavingDefault
                 } else {
                     strongSelf.energyUsageSettings = next.energyUsageSettings
@@ -544,7 +570,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 strongSelf.energyUsageAutomaticDisposable.set((automaticEnergyUsageShouldBeOn(settings: next)
                 |> deliverOnMainQueue).start(next: { value in
                     if let strongSelf = self {
-                        if value {
+                        if sharedLiteModeEnabled || value {
                             strongSelf.energyUsageSettings = EnergyUsageSettings.powerSavingDefault
                         } else {
                             strongSelf.energyUsageSettings = next.energyUsageSettings
@@ -632,6 +658,10 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             var addedAuthSignal: Signal<UnauthorizedAccount?, NoError> = .single(nil)
             for (id, attributes) in records {
                 if self.activeAccountsValue?.accounts.firstIndex(where: { $0.0 == id}) == nil {
+                    if sharedDeferStartupWarmups, let primaryId = primaryId, id != primaryId {
+                        self.pendingSecondaryAccountRecords[id] = attributes
+                        continue
+                    }
                     addedSignals.append(accountWithId(accountManager: accountManager, networkArguments: networkArguments, id: id, encryptionParameters: encryptionParameters, supplementary: !applicationBindings.isMainApp, isSupportUser: attributes.isSupportUser, rootPath: rootPath, beginWithTestingEnvironment: attributes.isTestingEnvironment, backupData: attributes.backupData, auxiliaryMethods: makeTelegramAccountAuxiliaryMethods(uploadInBackground: appDelegate?.uploadInBackround))
                     |> mapToSignal { result -> Signal<AddedAccountResult, NoError> in
                         switch result {
@@ -824,208 +854,8 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         })
         
         if let mainWindow = mainWindow, applicationBindings.isMainApp {
-            let callManager = PresentationCallManagerImpl(accountManager: self.accountManager, getDeviceAccessData: {
-                return (self.currentPresentationData.with { $0 }, { [weak self] c, a in
-                    self?.presentGlobalController(c, a)
-                }, {
-                    applicationBindings.openSettings()
-                })
-            }, isMediaPlaying: { [weak self] in
-                guard let strongSelf = self else {
-                    return false
-                }
-                var result = false
-                let _ = (strongSelf.mediaManager.globalMediaPlayerState
-                |> take(1)
-                |> deliverOnMainQueue).start(next: { state in
-                    if let (_, playbackState, _) = state, case let .state(value) = playbackState, case .playing = value.status.status {
-                        result = true
-                    }
-                })
-                return result
-            }, resumeMediaPlayback: { [weak self] in
-                guard let strongSelf = self else {
-                    return
-                }
-                strongSelf.mediaManager.playlistControl(.playback(.play), type: nil)
-            }, audioSession: self.mediaManager.audioSession, activeAccounts: self.activeAccountContexts |> map { _, accounts, _ in
-                return Array(accounts.map({ $0.1 }))
-            })
-            self.callManager = callManager
-            
-            self.callDisposable = (callManager.currentCallSignal
-            |> deliverOnMainQueue).start(next: { [weak self] call in
-                guard let self else {
-                    return
-                }
-                
-                if let call {
-                    self.updateCurrentCall(call: .call(call))
-                } else if let current = self.currentCall, case .call = current {
-                    self.updateCurrentCall(call: nil)
-                }
-                
-                /*if call !== self.call {
-                    let previousCall = self.call
-                    self.call = call
-                    
-                    self.callController?.dismiss()
-                    self.callController = nil
-                    self.hasOngoingCall.set(false)
-                    self.callState.set(.single(nil))
-                    
-                    if let previousCall, let groupCallController = self.groupCallController {
-                        var matches = false
-                        switch groupCallController.call {
-                        case let .conferenceSource(conferenceSource):
-                            if conferenceSource === previousCall {
-                                matches = true
-                            }
-                        case let .group(groupCall):
-                            if (groupCall as? PresentationGroupCallImpl)?.upgradedConferenceCall === previousCall {
-                                matches = true
-                            }
-                        }
-                        
-                        if matches {
-                            self.groupCallController = nil
-                            groupCallController.dismiss(closing: true, manual: false)
-                        }
-                    }
-                    
-                    self.notificationController?.setBlocking(nil)
-                    
-                    self.callPeerDisposable?.dispose()
-                    self.callPeerDisposable = nil
-                    self.callIsConferenceDisposable?.dispose()
-                    self.callIsConferenceDisposable = nil
-                    
-                    if let call {
-                        self.hasOngoingCall.set(true)
-                        setNotificationCall(call)
-                        
-                        self.callIsConferenceDisposable = (call.conferenceState
-                        |> filter { $0 != nil }
-                        |> take(1)
-                        |> deliverOnMainQueue).startStrict(next: { [weak self] _ in
-                            guard let self else {
-                                return
-                            }
-                            guard let call = self.call else {
-                                return
-                            }
-                            guard let callController = self.callController, callController.call === call else {
-                                if self.callController == nil, call.conferenceStateValue != nil {
-                                    self.presentControllerWithCurrentCall()
-                                    self.notificationController?.setBlocking(nil)
-                                }
-                                return
-                            }
-                            if call.conferenceStateValue != nil {
-                                self.presentControllerWithCurrentCall()
-                            }
-                        })
-                        
-                        if call.isOutgoing {
-                            self.presentControllerWithCurrentCall()
-                        } else {
-                            if !call.isIntegratedWithCallKit {
-                                self.callPeerDisposable?.dispose()
-                                self.callPeerDisposable = (call.context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: call.peerId))
-                                |> deliverOnMainQueue).startStrict(next: { [weak self, weak call] peer in
-                                    guard let self, let call, let peer else {
-                                        return
-                                    }
-                                    if self.call !== call {
-                                        return
-                                    }
-                                    
-                                    let presentationData = self.currentPresentationData.with { $0 }
-                                    self.notificationController?.setBlocking(ChatCallNotificationItem(context: call.context, strings: presentationData.strings, nameDisplayOrder: presentationData.nameDisplayOrder, peer: peer, isVideo: call.isVideo, action: { [weak call] answerAction in
-                                        guard let call else {
-                                            return
-                                        }
-                                        if answerAction {
-                                            call.answer()
-                                        } else {
-                                            call.rejectBusy()
-                                        }
-                                    }))
-                                })
-                            }
-                            
-                            self.awaitingCallConnectionDisposable = (call.state
-                            |> filter { state in
-                                switch state.state {
-                                case .ringing:
-                                    return false
-                                case .terminating, .terminated:
-                                    return false
-                                default:
-                                    return true
-                                }
-                            }
-                            |> take(1)
-                            |> deliverOnMainQueue).start(next: { [weak self] _ in
-                                guard let self else {
-                                    return
-                                }
-                                self.notificationController?.setBlocking(nil)
-                                self.presentControllerWithCurrentCall()
-                                
-                                self.callPeerDisposable?.dispose()
-                                self.callPeerDisposable = nil
-                            })
-                        }
-                    } else {
-                        self.callState.set(.single(nil))
-                        self.hasOngoingCall.set(false)
-                        self.awaitingCallConnectionDisposable?.dispose()
-                        self.awaitingCallConnectionDisposable = nil
-                        setNotificationCall(nil)
-                    }
-                }*/
-            })
-            
-            self.groupCallDisposable = (callManager.currentGroupCallSignal
-            |> deliverOnMainQueue).start(next: { [weak self] call in
-                guard let self else {
-                    return
-                }
-                
-                if let call {
-                    self.updateCurrentCall(call: .group(call))
-                } else if let current = self.currentCall, case .group = current {
-                    self.updateCurrentCall(call: nil)
-                }
-            })
-            
-            mainWindow.inCallNavigate = { [weak self] in
-                guard let self else {
-                    return
-                }
-                if let callController = self.callController {
-                    mainWindow.hostView.containerView.endEditing(true)
-                    if callController.view.superview == nil {
-                        if useFlatModalCallsPresentation(context: callController.call.context) {
-                            (mainWindow.viewController as? NavigationController)?.pushViewController(callController)
-                        } else {
-                            mainWindow.present(callController, on: .calls)
-                        }
-                    } else {
-                        callController.expandFromPipIfPossible()
-                    }
-                } else if let groupCallController = self.groupCallController {
-                    mainWindow.hostView.containerView.endEditing(true)
-                    if groupCallController.view.superview == nil {
-                        (mainWindow.viewController as? NavigationController)?.pushViewController(groupCallController)
-                    }
-                } else if let streamController = self.streamController {
-                    mainWindow.hostView.containerView.endEditing(true)
-                    if streamController.view.superview == nil {
-                        (mainWindow.viewController as? NavigationController)?.pushViewController(streamController)
-                    }
-                }
+            if !sharedDeferStartupWarmups {
+                self.setupCallManager(mainWindow: mainWindow, applicationBindings: applicationBindings)
             }
         } else {
             self.callManager = nil
@@ -1091,6 +921,219 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 eventView.overrideUserInterfaceStyle = userInterfaceStyle
             }
         }*/
+    }
+    
+    private func subscribeContactDataManagerDisplayOrder(accountManager: AccountManager<TelegramAccountManagerTypes>) {
+        self.contactDataManagerDisplayOrderDisposable.set(self.contactDataManager?.personNameDisplayOrder().start(next: { order in
+            let _ = updateContactSettingsInteractively(accountManager: accountManager, { settings in
+                var settings = settings
+                settings.nameDisplayOrder = order
+                return settings
+            }).start()
+        }))
+    }
+    
+    public func initializeDeferredDeviceManagersIfNeeded() {
+        guard sharedDeferStartupWarmups, !self.deferredDeviceManagersInitialized, self.applicationBindings.isMainApp else {
+            return
+        }
+        self.deferredDeviceManagersInitialized = true
+        self.locationManager = DeviceLocationManager(queue: Queue.mainQueue())
+        self.contactDataManager = DeviceContactDataManagerImpl(accountManager: self.accountManager)
+        self.subscribeContactDataManagerDisplayOrder(accountManager: self.accountManager)
+    }
+    
+    public func initializeDeferredCallManagerIfNeeded() {
+        guard sharedDeferStartupWarmups, !self.deferredCallManagerSetup, let mainWindow = self.mainWindow, self.applicationBindings.isMainApp else {
+            return
+        }
+        self.setupCallManager(mainWindow: mainWindow, applicationBindings: self.applicationBindings)
+    }
+    
+    private func setupCallManager(mainWindow: Window1, applicationBindings: TelegramApplicationBindings) {
+        guard !self.deferredCallManagerSetup else {
+            return
+        }
+        self.deferredCallManagerSetup = true
+        
+        let callManager = PresentationCallManagerImpl(accountManager: self.accountManager, getDeviceAccessData: {
+            return (self.currentPresentationData.with { $0 }, { [weak self] c, a in
+                self?.presentGlobalController(c, a)
+            }, {
+                applicationBindings.openSettings()
+            })
+        }, isMediaPlaying: { [weak self] in
+            guard let strongSelf = self else {
+                return false
+            }
+            var result = false
+            let _ = (strongSelf.mediaManager.globalMediaPlayerState
+            |> take(1)
+            |> deliverOnMainQueue).start(next: { state in
+                if let (_, playbackState, _) = state, case let .state(value) = playbackState, case .playing = value.status.status {
+                    result = true
+                }
+            })
+            return result
+        }, resumeMediaPlayback: { [weak self] in
+            guard let strongSelf = self else {
+                return
+            }
+            strongSelf.mediaManager.playlistControl(.playback(.play), type: nil)
+        }, audioSession: self.mediaManager.audioSession, activeAccounts: self.activeAccountContexts |> map { _, accounts, _ in
+            return Array(accounts.map({ $0.1 }))
+        })
+        self.callManager = callManager
+        
+        self.callDisposable = (callManager.currentCallSignal
+        |> deliverOnMainQueue).start(next: { [weak self] call in
+            guard let self else {
+                return
+            }
+            
+            if let call {
+                self.updateCurrentCall(call: .call(call))
+            } else if let current = self.currentCall, case .call = current {
+                self.updateCurrentCall(call: nil)
+            }
+        })
+        
+        self.groupCallDisposable = (callManager.currentGroupCallSignal
+        |> deliverOnMainQueue).start(next: { [weak self] call in
+            guard let self else {
+                return
+            }
+            
+            if let call {
+                self.updateCurrentCall(call: .group(call))
+            } else if let current = self.currentCall, case .group = current {
+                self.updateCurrentCall(call: nil)
+            }
+        })
+        
+        mainWindow.inCallNavigate = { [weak self] in
+            guard let self else {
+                return
+            }
+            if let callController = self.callController {
+                mainWindow.hostView.containerView.endEditing(true)
+                if callController.view.superview == nil {
+                    if useFlatModalCallsPresentation(context: callController.call.context) {
+                        (mainWindow.viewController as? NavigationController)?.pushViewController(callController)
+                    } else {
+                        mainWindow.present(callController, on: .calls)
+                    }
+                } else {
+                    callController.expandFromPipIfPossible()
+                }
+            } else if let groupCallController = self.groupCallController {
+                mainWindow.hostView.containerView.endEditing(true)
+                if groupCallController.view.superview == nil {
+                    (mainWindow.viewController as? NavigationController)?.pushViewController(groupCallController)
+                }
+            } else if let streamController = self.streamController {
+                mainWindow.hostView.containerView.endEditing(true)
+                if streamController.view.superview == nil {
+                    (mainWindow.viewController as? NavigationController)?.pushViewController(streamController)
+                }
+            }
+        }
+    }
+    
+    public func openDeferredSecondaryAccounts() {
+        guard sharedDeferStartupWarmups else {
+            return
+        }
+        let pending = self.pendingSecondaryAccountRecords
+        guard !pending.isEmpty else {
+            return
+        }
+        self.pendingSecondaryAccountRecords = [:]
+        
+        var addedSignals: [Signal<AddedAccountResult, NoError>] = []
+        for (id, attributes) in pending {
+            if self.activeAccountsValue?.accounts.firstIndex(where: { $0.0 == id }) != nil {
+                continue
+            }
+            addedSignals.append(accountWithId(accountManager: self.accountManager, networkArguments: self.networkArguments, id: id, encryptionParameters: self.encryptionParameters, supplementary: !self.applicationBindings.isMainApp, isSupportUser: attributes.isSupportUser, rootPath: self.basePath, beginWithTestingEnvironment: attributes.isTestingEnvironment, backupData: attributes.backupData, auxiliaryMethods: makeTelegramAccountAuxiliaryMethods(uploadInBackground: self.appDelegate?.uploadInBackround))
+            |> mapToSignal { result -> Signal<AddedAccountResult, NoError> in
+                switch result {
+                    case let .authorized(account):
+                        setupAccount(account, fetchCachedResourceRepresentation: fetchCachedResourceRepresentation, transformOutgoingMessageMedia: transformOutgoingMessageMedia)
+                        return TelegramEngine(account: account).data.get(
+                            TelegramEngine.EngineData.Item.Configuration.Limits(),
+                            TelegramEngine.EngineData.Item.Configuration.ContentSettings(),
+                            TelegramEngine.EngineData.Item.Configuration.App(),
+                            TelegramEngine.EngineData.Item.Configuration.AvailableColorOptions(scope: .replies),
+                            TelegramEngine.EngineData.Item.Configuration.AvailableColorOptions(scope: .profile)
+                        )
+                        |> map { limitsConfiguration, contentSettings, appConfiguration, availableReplyColors, availableProfileColors -> AddedAccountResult in
+                            return .ready(id, account, attributes.sortIndex, (limitsConfiguration._asLimits(), contentSettings, appConfiguration, availableReplyColors, availableProfileColors))
+                        }
+                    case let .upgrading(progress):
+                        return .single(.upgrading(progress))
+                    default:
+                        return .single(.ready(id, nil, attributes.sortIndex, (nil, nil, nil, EngineAvailableColorOptions(hash: 0, options: []), EngineAvailableColorOptions(hash: 0, options: []))))
+                }
+            })
+        }
+        guard !addedSignals.isEmpty else {
+            return
+        }
+        
+        let mappedAddedAccounts = combineLatest(queue: .mainQueue(), addedSignals)
+        |> map { results -> AddedAccountsResult in
+            var readyAccounts: [(AccountRecordId, Account?, Int32, AccountInitialData)] = []
+            var totalProgress: Float = 0.0
+            var hasItemsWithProgress = false
+            for result in results {
+                switch result {
+                    case let .ready(id, account, sortIndex, initialData):
+                        readyAccounts.append((id, account, sortIndex, initialData))
+                        totalProgress += 1.0
+                    case let .upgrading(progress):
+                        hasItemsWithProgress = true
+                        totalProgress += progress
+                }
+            }
+            if hasItemsWithProgress, !results.isEmpty {
+                return .upgrading(totalProgress / Float(results.count))
+            } else {
+                return .ready(readyAccounts)
+            }
+        }
+        
+        self.deferredSecondaryAccountsDisposable.set((mappedAddedAccounts
+        |> deliverOnMainQueue).start(next: { [weak self] mappedAddedAccounts in
+            guard let self else {
+                return
+            }
+            var addedAccounts: [(AccountRecordId, Account?, Int32, AccountInitialData)] = []
+            switch mappedAddedAccounts {
+                case .upgrading:
+                    return
+                case let .ready(value):
+                    addedAccounts = value
+            }
+            if self.activeAccountsValue == nil {
+                self.activeAccountsValue = (nil, [], nil)
+            }
+            for accountRecord in addedAccounts {
+                if let account = accountRecord.1 {
+                    if self.activeAccountsValue?.accounts.firstIndex(where: { $0.0 == account.id }) != nil {
+                        continue
+                    }
+                    let context = AccountContextImpl(sharedContext: self, account: account, limitsConfiguration: accountRecord.3.limitsConfiguration ?? .defaultValue, contentSettings: accountRecord.3.contentSettings ?? .default, appConfiguration: accountRecord.3.appConfiguration ?? .defaultValue, availableReplyColors: accountRecord.3.availableReplyColors, availableProfileColors: accountRecord.3.availableProfileColors)
+                    self.activeAccountsValue!.accounts.append((account.id, context, accountRecord.2))
+                    self.managedAccountDisposables.set(self.updateAccountBackupData(account: account).start(), forKey: account.id)
+                    account.resetStateManagement()
+                }
+            }
+            if self.activeAccountsValue != nil {
+                self.activeAccountsValue!.accounts.sort(by: { $0.2 < $1.2 })
+                self.activeAccountsPromise.set(.single(self.activeAccountsValue!))
+            }
+        }))
     }
     
     deinit {

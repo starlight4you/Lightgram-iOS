@@ -518,7 +518,7 @@ aps_fragment = "" if telegram_aps_environment == "" else """
 <string>{telegram_aps_environment}</string>
 """.format(telegram_aps_environment=telegram_aps_environment)
 
-app_groups_fragment = """
+_official_app_groups_fragment = """
     <key>com.apple.security.application-groups</key>
     <array>
         <string>group.{telegram_bundle_id}</string>
@@ -529,6 +529,11 @@ app_groups_fragment = """
     telegram_team_id=telegram_team_id,
     telegram_bundle_id=telegram_bundle_id
 )
+
+# App Groups requires a paid Apple Developer Program account, so omit it for
+# unofficial bundle IDs. The hardcoded application-identifier is also dropped
+# in that case; Xcode autogenerates it from the actual signing identity.
+app_groups_fragment = _official_app_groups_fragment if telegram_bundle_id in official_bundle_ids else ""
 
 official_communication_notifications_fragment = """
 <key>com.apple.developer.usernotifications.communication</key>
@@ -1714,7 +1719,8 @@ plist_fragment(
 
 local_provisioning_profile(
     name = "Telegram_local_profile",
-    profile_name = "iOS Team Provisioning Profile: {}".format(telegram_bundle_id),
+    # Prefer Xcode's team wildcard profile when a bundle-specific profile is not downloaded yet.
+    profile_name = "iOS Team Provisioning Profile: *",
     team_id = telegram_team_id,
 )
 

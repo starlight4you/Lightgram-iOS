@@ -29,10 +29,11 @@ private func generateBlurredContents(image: UIImage, dimColor: UIColor?) -> UIIm
         c.draw(image.cgImage!, in: CGRect(origin: CGPoint(), size: size))
     }
 
-    telegramFastBlurMore(Int32(context.size.width), Int32(context.size.height), Int32(context.bytesPerRow), context.bytes)
-    telegramFastBlurMore(Int32(context.size.width), Int32(context.size.height), Int32(context.bytesPerRow), context.bytes)
-
-    adjustSaturationInContext(context: context, saturation: 1.7)
+    if !sharedLiteModeEnabled {
+        telegramFastBlurMore(Int32(context.size.width), Int32(context.size.height), Int32(context.bytesPerRow), context.bytes)
+        telegramFastBlurMore(Int32(context.size.width), Int32(context.size.height), Int32(context.bytesPerRow), context.bytes)
+        adjustSaturationInContext(context: context, saturation: 1.7)
+    }
 
     if let dimColor {
         context.withFlippedContext { c in
@@ -1788,6 +1789,9 @@ public final class WallpaperBackgroundNodeImpl: ASDisplayNode, WallpaperBackgrou
     private var isLooping = false
     
     public func animateEvent(transition: ContainedViewLayoutTransition, extendAnimation: Bool) {
+        if sharedDisableBackgroundAnimation {
+            return
+        }
         guard !(self.isLooping && self.isAnimating) else {
             return
         }
@@ -1804,6 +1808,10 @@ public final class WallpaperBackgroundNodeImpl: ASDisplayNode, WallpaperBackgrou
     }
 
     public func updateIsLooping(_ isLooping: Bool) {
+        if sharedDisableBackgroundAnimation {
+            self.isLooping = false
+            return
+        }
         let wasLooping = self.isLooping
         self.isLooping = isLooping
         

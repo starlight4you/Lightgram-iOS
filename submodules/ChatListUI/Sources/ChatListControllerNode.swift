@@ -395,7 +395,10 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
         }
         |> distinctUntilChanged
         
-        if self.controlsHistoryPreload, case .chatList(groupId: .root) = self.location {
+        let setupHistoryPreload: () -> Void = { [weak self] in
+            guard let self, self.controlsHistoryPreload, case .chatList(groupId: .root) = self.location else {
+                return
+            }
             self.context.account.viewTracker.chatListPreloadItems.set(combineLatest(queue: .mainQueue(),
                 context.sharedContext.enablePreloads.get(),
                 itemNode.listNode.preloadItems.get(),
@@ -408,6 +411,13 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
                     return Set(preloadItems)
                 }
             })
+        }
+        
+        if sharedDeferStartupWarmups {
+            let historyPreloadDelay: Double = sharedLiteModeEnabled ? 0.1 : 1.0
+            Queue.mainQueue().after(historyPreloadDelay, setupHistoryPreload)
+        } else {
+            setupHistoryPreload()
         }
     }
     
@@ -2398,6 +2408,9 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
 }
 
 func shouldDisplayStoriesInChatListHeader(storySubscriptions: EngineStorySubscriptions, isHidden: Bool) -> Bool {
+    if sharedLiteModeEnabled {
+        return false
+    }
     if !storySubscriptions.items.isEmpty {
         return true
     }

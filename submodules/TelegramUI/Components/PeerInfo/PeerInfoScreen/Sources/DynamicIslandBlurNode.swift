@@ -98,8 +98,10 @@ final class DynamicIslandBlurNode: ASDisplayNode {
         let animator =  UIViewPropertyAnimator(duration: 1.0, curve: .linear)
         self.animator = animator
         self.effectView?.effect = nil
-        animator.addAnimations { [weak self] in
-            self?.effectView?.effect = UIBlurEffect(style: .dark)
+        if !sharedDisableBlur {
+            animator.addAnimations { [weak self] in
+                self?.effectView?.effect = UIBlurEffect(style: .dark)
+            }
         }
         return true
     }

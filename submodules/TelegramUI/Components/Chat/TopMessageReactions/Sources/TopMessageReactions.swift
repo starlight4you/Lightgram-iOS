@@ -145,7 +145,8 @@ public func tagMessageReactions(context: AccountContext, subPeerId: EnginePeer.I
                         largeListAnimation: reaction.activateAnimation,
                         applicationAnimation: aroundAnimation,
                         largeApplicationAnimation: reaction.effectAnimation,
-                        isCustom: false
+                        isCustom: false,
+                        staticIcon: reaction.staticIcon
                     ))
                 } else {
                     continue
@@ -169,7 +170,8 @@ public func tagMessageReactions(context: AccountContext, subPeerId: EnginePeer.I
                     largeListAnimation: itemFile,
                     applicationAnimation: nil,
                     largeApplicationAnimation: nil,
-                    isCustom: true
+                    isCustom: true,
+                    staticIcon: itemFile
                 ))
             case .stars:
                 continue
@@ -204,7 +206,8 @@ public func tagMessageReactions(context: AccountContext, subPeerId: EnginePeer.I
                             largeListAnimation: reaction.activateAnimation,
                             applicationAnimation: aroundAnimation,
                             largeApplicationAnimation: reaction.effectAnimation,
-                            isCustom: false
+                            isCustom: false,
+                            staticIcon: reaction.staticIcon
                         ))
                     } else {
                         continue
@@ -223,7 +226,8 @@ public func tagMessageReactions(context: AccountContext, subPeerId: EnginePeer.I
                         largeListAnimation: file,
                         applicationAnimation: nil,
                         largeApplicationAnimation: nil,
-                        isCustom: true
+                        isCustom: true,
+                        staticIcon: file
                     ))
                 case .stars:
                     if let reaction = availableReactions?.reactions.first(where: { $0.value == .stars }) {
@@ -247,7 +251,8 @@ public func tagMessageReactions(context: AccountContext, subPeerId: EnginePeer.I
                             largeListAnimation: reaction.activateAnimation,
                             applicationAnimation: aroundAnimation,
                             largeApplicationAnimation: reaction.effectAnimation,
-                            isCustom: false
+                            isCustom: false,
+                            staticIcon: reaction.staticIcon
                         ))
                     } else {
                         continue
@@ -362,7 +367,8 @@ public func topMessageReactions(context: AccountContext, message: Message, subPe
                         largeListAnimation: reaction.activateAnimation,
                         applicationAnimation: aroundAnimation,
                         largeApplicationAnimation: reaction.effectAnimation,
-                        isCustom: false
+                        isCustom: false,
+                        staticIcon: reaction.staticIcon
                     ))
                 } else {
                     continue
@@ -390,7 +396,8 @@ public func topMessageReactions(context: AccountContext, message: Message, subPe
                     largeListAnimation: file,
                     applicationAnimation: nil,
                     largeApplicationAnimation: nil,
-                    isCustom: true
+                    isCustom: true,
+                    staticIcon: file
                 ))
             case .stars:
                 break
@@ -430,7 +437,8 @@ public func topMessageReactions(context: AccountContext, message: Message, subPe
                 largeListAnimation: reaction.activateAnimation,
                 applicationAnimation: aroundAnimation,
                 largeApplicationAnimation: reaction.effectAnimation,
-                isCustom: false
+                isCustom: false,
+                staticIcon: reaction.staticIcon
             ))
         }
         
@@ -455,7 +463,8 @@ public func topMessageReactions(context: AccountContext, message: Message, subPe
                             largeListAnimation: file,
                             applicationAnimation: nil,
                             largeApplicationAnimation: nil,
-                            isCustom: true
+                            isCustom: true,
+                            staticIcon: file
                         ))
                     }
                 case .stars:
@@ -478,7 +487,8 @@ public func topMessageReactions(context: AccountContext, message: Message, subPe
                         largeListAnimation: reaction.activateAnimation,
                         applicationAnimation: aroundAnimation,
                         largeApplicationAnimation: reaction.effectAnimation,
-                        isCustom: false
+                        isCustom: false,
+                        staticIcon: reaction.staticIcon
                     ), at: 0)
                 }
             }

@@ -413,11 +413,11 @@ public final class GradientBackgroundNode: ASDisplayNode {
                     steps.append(positions)
                 }
 
-                if case let .animated(duration, curve) = transition, duration > 0.001 {
+                if case let .animated(duration, curve) = transition, duration > 0.001, !sharedDisableBackgroundAnimation {
                     var images: [(UIImage, String)] = []
 
                     var dimmedImages: [UIImage] = []
-                    let needDimmedImages = !self.cloneNodes.isEmpty
+                    let needDimmedImages = !self.cloneNodes.isEmpty && !sharedLiteModeEnabled
 
                     let stepCount = steps.count - 1
 

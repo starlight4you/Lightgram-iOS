@@ -31,6 +31,7 @@ import PeerInfoScreen
 import PeerInfoStoryGridScreen
 import ShareWithPeersScreen
 import ChatEmptyNode
+import PresentationDataUtils
 
 private class DetailsChatPlaceholderNode: ASDisplayNode, NavigationDetailsPlaceholderNode {
     private var presentationData: PresentationData
@@ -89,6 +90,8 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
     
     private var applicationInFocusDisposable: Disposable?
     private var storyUploadEventsDisposable: Disposable?
+    private var deferredShowCallsTab = false
+    private var didMaterializeDeferredTabs = false
     
     override public var minimizedContainer: MinimizedContainer? {
         didSet {
@@ -127,14 +130,16 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
                 context.sharedContext.mainWindow?.setForceBadgeHidden(!value)
             })
             
-            self.storyUploadEventsDisposable = (context.engine.messages.allStoriesUploadEvents()
-            |> deliverOnMainQueue).startStrict(next: { [weak self] event in
-                guard let self else {
-                    return
-                }
-                let (stableId, id) = event
-                moveStorySource(engine: self.context.engine, peerId: self.context.account.peerId, from: Int64(stableId), to: Int64(id))
-            })
+            if !sharedLiteModeEnabled {
+                self.storyUploadEventsDisposable = (context.engine.messages.allStoriesUploadEvents()
+                |> deliverOnMainQueue).startStrict(next: { [weak self] event in
+                    guard let self else {
+                        return
+                    }
+                    let (stableId, id) = event
+                    moveStorySource(engine: self.context.engine, peerId: self.context.account.peerId, from: Int64(stableId), to: Int64(id))
+                })
+            }
         }
     }
     
@@ -206,19 +211,31 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         if let sharedContext = self.context.sharedContext as? SharedAccountContextImpl {
             chatListController.tabBarItem.badgeValue = sharedContext.switchingData.chatListBadge
         }
-        let callListController = CallListController(context: self.context, mode: .tab)
         
         var controllers: [ViewController] = []
         
-        let contactsController = ContactsController(context: self.context)
-        contactsController.switchToChatsController = {  [weak self] in
-            self?.openChatsController(activateSearch: false)
+        if sharedDeferStartupWarmups {
+            self.deferredShowCallsTab = showCallsTab
+            controllers.append(self.makeDeferredTabPlaceholder(title: self.presentationData.strings.Contacts_Title, iconName: useSpecialTabBarIcons() ? "Chat List/Tabs/Holiday/IconContacts" : "Chat List/Tabs/IconContacts", animationName: "TabContacts"))
+            if showCallsTab {
+                controllers.append(self.makeDeferredTabPlaceholder(title: self.presentationData.strings.Calls_TabTitle, iconName: useSpecialTabBarIcons() ? "Chat List/Tabs/Holiday/IconCalls" : "Chat List/Tabs/IconCalls", animationName: "TabCalls"))
+            }
+            self.contactsController = nil
+            self.callListController = nil
+        } else {
+            let callListController = CallListController(context: self.context, mode: .tab)
+            let contactsController = ContactsController(context: self.context)
+            contactsController.switchToChatsController = {  [weak self] in
+                self?.openChatsController(activateSearch: false)
+            }
+            controllers.append(contactsController)
+            if showCallsTab {
+                controllers.append(callListController)
+            }
+            self.contactsController = contactsController
+            self.callListController = callListController
         }
-        controllers.append(contactsController)
         
-        if showCallsTab {
-            controllers.append(callListController)
-        }
         controllers.append(chatListController)
         
         var restoreSettignsController: (ViewController & SettingsController)?
@@ -242,16 +259,74 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
                 
         tabBarController.setControllers(controllers, selectedIndex: restoreSettignsController != nil ? (controllers.count - 1) : (controllers.count - 2))
         
-        self.contactsController = contactsController
-        self.callListController = callListController
+        if !sharedDeferStartupWarmups {
+            // contacts/callListController assigned above
+        }
         self.chatListController = chatListController
         self.accountSettingsController = accountSettingsController
         self.rootTabController = tabBarController
         self.pushViewController(tabBarController, animated: false)
     }
+    
+    public func scheduleDeferredTabWarmup() {
+        guard sharedDeferStartupWarmups else {
+            return
+        }
+        Queue.mainQueue().after(1.5) { [weak self] in
+            self?.materializeDeferredTabControllers()
+        }
+    }
+    
+    private func makeDeferredTabPlaceholder(title: String, iconName: String, animationName: String) -> ViewController {
+        let controller = ViewController(navigationBarPresentationData: nil)
+        controller.title = title
+        controller.tabBarItem.title = title
+        let icon = UIImage(bundleImageName: iconName)
+        controller.tabBarItem.image = icon
+        controller.tabBarItem.selectedImage = icon
+        if !self.presentationData.reduceMotion {
+            controller.tabBarItem.animationName = animationName
+        }
+        return controller
+    }
+    
+    private func materializeDeferredTabControllers() {
+        guard sharedDeferStartupWarmups, !self.didMaterializeDeferredTabs else {
+            return
+        }
+        self.didMaterializeDeferredTabs = true
+        
+        let contactsController = ContactsController(context: self.context)
+        contactsController.switchToChatsController = { [weak self] in
+            self?.openChatsController(activateSearch: false)
+        }
+        self.contactsController = contactsController
+        
+        var controllers: [ViewController] = [contactsController]
+        if self.deferredShowCallsTab {
+            let callListController = CallListController(context: self.context, mode: .tab)
+            self.callListController = callListController
+            controllers.append(callListController)
+        }
+        if let chatListController = self.chatListController {
+            controllers.append(chatListController)
+        }
+        if let accountSettingsController = self.accountSettingsController {
+            controllers.append(accountSettingsController)
+        }
+        
+        guard let rootTabController = self.rootTabController else {
+            return
+        }
+        rootTabController.setControllers(controllers, selectedIndex: rootTabController.selectedIndex)
+    }
         
     public func updateRootControllers(showCallsTab: Bool) {
         guard let rootTabController = self.rootTabController as? TabBarControllerImpl else {
+            return
+        }
+        if sharedDeferStartupWarmups, self.contactsController == nil {
+            self.deferredShowCallsTab = showCallsTab
             return
         }
         var controllers: [ViewController] = []
@@ -314,6 +389,9 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
     
     @discardableResult
     public func openStoryCamera(mode: StoryCameraMode, customTarget: Stories.PendingTarget?, resumeLiveStream: Bool, transitionIn: StoryCameraTransitionIn?, transitionedIn: @escaping () -> Void, transitionOut: @escaping (Stories.PendingTarget?, Bool) -> StoryCameraTransitionOut?) -> StoryCameraTransitionInCoordinator? {
+        if sharedLiteModeEnabled {
+            return nil
+        }
         guard let controller = self.viewControllers.last as? ViewController else {
             return nil
         }

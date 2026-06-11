@@ -791,7 +791,9 @@ public class MinimizedContainerImpl: ASDisplayNode, MinimizedContainer, ASScroll
         if self.isExpanded {
             if self.blurView.effect == nil {
                 UIView.animate(withDuration: 0.25, animations: {
-                    self.blurView.effect = UIBlurEffect(style: self.presentationData.theme.overallDarkAppearance ? .dark : .light)
+                    if !sharedDisableBlur {
+                        self.blurView.effect = UIBlurEffect(style: self.presentationData.theme.overallDarkAppearance ? .dark : .light)
+                    }
                     self.dimView.alpha = 1.0
                 })
             }

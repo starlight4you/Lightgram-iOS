@@ -45,6 +45,7 @@ public final class ReactionItem {
     public let applicationAnimation: TelegramMediaFile.Accessor?
     public let largeApplicationAnimation: TelegramMediaFile.Accessor?
     public let isCustom: Bool
+    public let staticIcon: TelegramMediaFile.Accessor?
     
     public init(
         reaction: ReactionItem.Reaction,
@@ -54,7 +55,8 @@ public final class ReactionItem {
         largeListAnimation: TelegramMediaFile.Accessor,
         applicationAnimation: TelegramMediaFile.Accessor?,
         largeApplicationAnimation: TelegramMediaFile.Accessor?,
-        isCustom: Bool
+        isCustom: Bool,
+        staticIcon: TelegramMediaFile.Accessor? = nil
     ) {
         self.reaction = reaction
         self.appearAnimation = appearAnimation
@@ -64,6 +66,7 @@ public final class ReactionItem {
         self.applicationAnimation = applicationAnimation
         self.largeApplicationAnimation = largeApplicationAnimation
         self.isCustom = isCustom
+        self.staticIcon = staticIcon
     }
     
     var updateMessageReaction: UpdateMessageReaction {
@@ -454,6 +457,10 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
     public var isReactionSearchActive: Bool = false
     
     public var reduceMotion: Bool = false
+    
+    private var effectiveReduceMotion: Bool {
+        return self.presentationData.reduceMotion || self.reduceMotion || sharedLiteModeEnabled
+    }
     
     public var isEmojiOnly: Bool = false
     
@@ -1078,7 +1085,7 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
                             break
                         }
                         
-                        itemNode = ReactionNode(context: self.context, theme: self.presentationData.theme, item: item, icon: icon, animationCache: self.animationCache, animationRenderer: self.animationRenderer, loopIdle: loopIdle, isLocked: isLocked)
+                        itemNode = ReactionNode(context: self.context, theme: self.presentationData.theme, item: item, icon: icon, animationCache: self.animationCache, animationRenderer: self.animationRenderer, loopIdle: loopIdle, isLocked: isLocked, hasAppearAnimation: !sharedLiteModeEnabled)
                         maskNode = nil
                     case let .staticEmoji(emoji):
                         itemNode = EmojiItemNode(theme: self.presentationData.theme, emoji: emoji)
@@ -1187,7 +1194,7 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
                     }
                     
                     if animateIn && !self.skipApperanceAnimation {
-                        itemNode.appear(animated: !self.context.sharedContext.currentPresentationData.with({ $0 }).reduceMotion && !self.reduceMotion)
+                        itemNode.appear(animated: !self.effectiveReduceMotion)
                     }
                     
                     if !self.reactionsLocked, self.getEmojiContent != nil, i == itemLayout.visibleItemCount - 1, let itemNode = itemNode as? ReactionNode {
@@ -1603,7 +1610,7 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
             self.backgroundNode.backgroundTintMaskContainer.addSubview(self.contentTintContainer.view)
         }
         
-        if let animateInFromAnchorRect = animateInFromAnchorRect, !self.reduceMotion {
+        if let animateInFromAnchorRect = animateInFromAnchorRect, !self.effectiveReduceMotion {
             let springDuration: Double = 0.5
             let springDamping: CGFloat = 104.0
             let springScaleDelay: Double = 0.1
@@ -2461,13 +2468,13 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
         
         let mainCircleDelay: Double = 0.01
         
-        if !self.presentationData.reduceMotion && !self.reduceMotion {
+        if !self.effectiveReduceMotion {
             self.backgroundNode.animateIn()
         }
         
         self.didAnimateIn = true
         
-        if !self.presentationData.reduceMotion && !self.reduceMotion {
+        if !self.effectiveReduceMotion {
             for i in 0 ..< self.items.count {
                 guard let itemNode = self.visibleItemNodes[i] else {
                     continue
@@ -2669,7 +2676,9 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
         }
         
         let switchToInlineImmediately: Bool
-        if itemNode.item.listAnimation.isVideoEmoji || itemNode.item.listAnimation.isVideoSticker || itemNode.item.listAnimation.isAnimatedSticker || itemNode.item.listAnimation.isStaticEmoji {
+        if sharedLiteModeEnabled {
+            switchToInlineImmediately = true
+        } else if itemNode.item.listAnimation.isVideoEmoji || itemNode.item.listAnimation.isVideoSticker || itemNode.item.listAnimation.isAnimatedSticker || itemNode.item.listAnimation.isStaticEmoji {
             switch itemNode.item.reaction.rawValue {
             case .builtin:
                 switchToInlineImmediately = forceSwitchToInlineImmediately
@@ -2737,110 +2746,110 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
         transition.updateBounds(node: itemNode, bounds: CGRect(origin: CGPoint(), size: expandedFrame.size))
         itemNode.updateLayout(size: expandedFrame.size, isExpanded: true, largeExpanded: self.didTriggerExpandedReaction, isPreviewing: false, transition: transition)
         
-        let additionalAnimationNode: DefaultAnimatedStickerNodeImpl?
+        var additionalAnimationNode: DefaultAnimatedStickerNodeImpl?
         var genericAnimationView: AnimationView?
         
-        var additionalAnimation: TelegramMediaFile.Accessor?
-        if self.didTriggerExpandedReaction {
-            additionalAnimation = itemNode.item.largeApplicationAnimation
-        } else {
-            additionalAnimation = itemNode.item.applicationAnimation
-            
-            if additionalAnimation == nil && itemNode.item.isCustom {
-                if let alt = itemNode.item.stillAnimation.customEmojiAlt {
-                    if let availableReactions = self.availableReactions {
-                        for availableReaction in availableReactions.reactions {
-                            if availableReaction.value == .builtin(alt) {
-                                additionalAnimation = availableReaction.aroundAnimation
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        if let additionalAnimation = additionalAnimation {
-            let additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl()
-            additionalAnimationNode = additionalAnimationNodeValue
+        if !sharedLiteModeEnabled {
+            var additionalAnimation: TelegramMediaFile.Accessor?
             if self.didTriggerExpandedReaction {
-                if incomingMessage {
-                    additionalAnimationNodeValue.transform = CATransform3DMakeScale(-1.0, 1.0, 1.0)
-                }
-            }
-            
-            let additionalAnimationFile = additionalAnimation._parse()
-            additionalAnimationNodeValue.setup(source: AnimatedStickerResourceSource(account: itemNode.context.account, resource: additionalAnimationFile.resource), width: Int(effectFrame.width * 2.0), height: Int(effectFrame.height * 2.0), playbackMode: .once, mode: .direct(cachePathPrefix: self.context.engine.resources.shortLivedResourceCachePathPrefix(id: EngineMediaResource.Id(additionalAnimationFile.resource.id))))
-            additionalAnimationNodeValue.frame = effectFrame
-            additionalAnimationNodeValue.updateLayout(size: effectFrame.size)
-            self.addSubnode(additionalAnimationNodeValue)
-        } else if itemNode.item.isCustom {
-            additionalAnimationNode = nil
-            
-            var effectData: Data?
-            if self.didTriggerExpandedReaction {
-                if let url = getAppBundle().url(forResource: "generic_reaction_effect", withExtension: "json") {
-                    effectData = try? Data(contentsOf: url)
-                }
-            } else if let genericReactionEffect = self.genericReactionEffect, let data = try? Data(contentsOf: URL(fileURLWithPath: genericReactionEffect)) {
-                effectData = TGGUnzipData(data, 5 * 1024 * 1024) ?? data
+                additionalAnimation = itemNode.item.largeApplicationAnimation
             } else {
-                if let url = getAppBundle().url(forResource: "generic_reaction_small_effect", withExtension: "json") {
-                    effectData = try? Data(contentsOf: url)
+                additionalAnimation = itemNode.item.applicationAnimation
+                
+                if additionalAnimation == nil && itemNode.item.isCustom {
+                    if let alt = itemNode.item.stillAnimation.customEmojiAlt {
+                        if let availableReactions = self.availableReactions {
+                            for availableReaction in availableReactions.reactions {
+                                if availableReaction.value == .builtin(alt) {
+                                    additionalAnimation = availableReaction.aroundAnimation
+                                }
+                            }
+                        }
+                    }
                 }
             }
             
-            if let effectData = effectData, let composition = try? Animation.from(data: effectData) {
-                let view = AnimationView(animation: composition, configuration: LottieConfiguration(renderingEngine: .mainThread, decodingStrategy: .codable))
-                view.animationSpeed = 1.0
-                view.backgroundColor = nil
-                view.isOpaque = false
-                
-                if incomingMessage {
-                    view.layer.transform = CATransform3DMakeScale(-1.0, 1.0, 1.0)
-                }
-                
-                genericAnimationView = view
-                
-                let animationCache = itemNode.context.animationCache
-                let animationRenderer = itemNode.context.animationRenderer
-                
-                for i in 1 ... 32 {
-                    let allLayers = view.allLayers(forKeypath: AnimationKeypath(keypath: "placeholder_\(i)"))
-                    let itemNodeListAnimationFile = itemNode.item.listAnimation._parse()
-                    for animationLayer in allLayers {
-                        let baseItemLayer = InlineStickerItemLayer(
-                            context: itemNode.context,
-                            userLocation: .other,
-                            attemptSynchronousLoad: false,
-                            emoji: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: itemNode.item.listAnimation.fileId.id, file: itemNodeListAnimationFile),
-                            file: itemNodeListAnimationFile,
-                            cache: animationCache,
-                            renderer: animationRenderer,
-                            placeholderColor: UIColor(white: 0.0, alpha: 0.0),
-                            pointSize: CGSize(width: self.didTriggerExpandedReaction ? 64.0 : 32.0, height: self.didTriggerExpandedReaction ? 64.0 : 32.0)
-                        )
-                        
-                        if let sublayers = animationLayer.sublayers {
-                            for sublayer in sublayers {
-                                sublayer.isHidden = true
-                            }
-                        }
-                        
-                        baseItemLayer.isVisibleForAnimations = true
-                        baseItemLayer.frame = CGRect(origin: CGPoint(x: -0.0, y: -0.0), size: CGSize(width: 500.0, height: 500.0))
-                        animationLayer.addSublayer(baseItemLayer)
+            if let additionalAnimation = additionalAnimation {
+                let additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl()
+                additionalAnimationNode = additionalAnimationNodeValue
+                if self.didTriggerExpandedReaction {
+                    if incomingMessage {
+                        additionalAnimationNodeValue.transform = CATransform3DMakeScale(-1.0, 1.0, 1.0)
                     }
                 }
                 
+                let additionalAnimationFile = additionalAnimation._parse()
+                additionalAnimationNodeValue.setup(source: AnimatedStickerResourceSource(account: itemNode.context.account, resource: additionalAnimationFile.resource), width: Int(effectFrame.width * 2.0), height: Int(effectFrame.height * 2.0), playbackMode: .once, mode: .direct(cachePathPrefix: self.context.engine.resources.shortLivedResourceCachePathPrefix(id: EngineMediaResource.Id(additionalAnimationFile.resource.id))))
+                additionalAnimationNodeValue.frame = effectFrame
+                additionalAnimationNodeValue.updateLayout(size: effectFrame.size)
+                self.addSubnode(additionalAnimationNodeValue)
+            } else if itemNode.item.isCustom {
+                additionalAnimationNode = nil
+                
+                var effectData: Data?
                 if self.didTriggerExpandedReaction {
-                    view.frame = effectFrame.insetBy(dx: -10.0, dy: -10.0).offsetBy(dx: incomingMessage ? 22.0 : -22.0, dy: 0.0)
+                    if let url = getAppBundle().url(forResource: "generic_reaction_effect", withExtension: "json") {
+                        effectData = try? Data(contentsOf: url)
+                    }
+                } else if let genericReactionEffect = self.genericReactionEffect, let data = try? Data(contentsOf: URL(fileURLWithPath: genericReactionEffect)) {
+                    effectData = TGGUnzipData(data, 5 * 1024 * 1024) ?? data
                 } else {
-                    view.frame = effectFrame.insetBy(dx: -20.0, dy: -20.0)
+                    if let url = getAppBundle().url(forResource: "generic_reaction_small_effect", withExtension: "json") {
+                        effectData = try? Data(contentsOf: url)
+                    }
                 }
-                self.view.addSubview(view)
+                
+                if let effectData = effectData, let composition = try? Animation.from(data: effectData) {
+                    let view = AnimationView(animation: composition, configuration: LottieConfiguration(renderingEngine: .mainThread, decodingStrategy: .codable))
+                    view.animationSpeed = 1.0
+                    view.backgroundColor = nil
+                    view.isOpaque = false
+                    
+                    if incomingMessage {
+                        view.layer.transform = CATransform3DMakeScale(-1.0, 1.0, 1.0)
+                    }
+                    
+                    genericAnimationView = view
+                    
+                    let animationCache = itemNode.context.animationCache
+                    let animationRenderer = itemNode.context.animationRenderer
+                    
+                    for i in 1 ... 32 {
+                        let allLayers = view.allLayers(forKeypath: AnimationKeypath(keypath: "placeholder_\(i)"))
+                        let itemNodeListAnimationFile = itemNode.item.listAnimation._parse()
+                        for animationLayer in allLayers {
+                            let baseItemLayer = InlineStickerItemLayer(
+                                context: itemNode.context,
+                                userLocation: .other,
+                                attemptSynchronousLoad: false,
+                                emoji: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: itemNode.item.listAnimation.fileId.id, file: itemNodeListAnimationFile),
+                                file: itemNodeListAnimationFile,
+                                cache: animationCache,
+                                renderer: animationRenderer,
+                                placeholderColor: UIColor(white: 0.0, alpha: 0.0),
+                                pointSize: CGSize(width: self.didTriggerExpandedReaction ? 64.0 : 32.0, height: self.didTriggerExpandedReaction ? 64.0 : 32.0)
+                            )
+                            
+                            if let sublayers = animationLayer.sublayers {
+                                for sublayer in sublayers {
+                                    sublayer.isHidden = true
+                                }
+                            }
+                            
+                            baseItemLayer.isVisibleForAnimations = true
+                            baseItemLayer.frame = CGRect(origin: CGPoint(x: -0.0, y: -0.0), size: CGSize(width: 500.0, height: 500.0))
+                            animationLayer.addSublayer(baseItemLayer)
+                        }
+                    }
+                    
+                    if self.didTriggerExpandedReaction {
+                        view.frame = effectFrame.insetBy(dx: -10.0, dy: -10.0).offsetBy(dx: incomingMessage ? 22.0 : -22.0, dy: 0.0)
+                    } else {
+                        view.frame = effectFrame.insetBy(dx: -20.0, dy: -20.0)
+                    }
+                    self.view.addSubview(view)
+                }
             }
-        } else {
-            additionalAnimationNode = nil
         }
         
         var mainAnimationCompleted = false
@@ -3347,6 +3356,17 @@ public final class StandaloneReactionAnimation: ASDisplayNode {
         onHit?()
         
         self.targetView = targetView
+        
+        if sharedLiteModeEnabled {
+            if let targetView = targetView as? ReactionIconView, !isLarge {
+                targetView.updateIsAnimationHidden(isAnimationHidden: false, transition: .immediate)
+            } else {
+                targetView.alpha = 1.0
+                targetView.isHidden = false
+            }
+            completion()
+            return
+        }
         
         let itemNode: ReactionNode?
         if playCenterReaction {

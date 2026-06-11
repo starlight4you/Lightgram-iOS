@@ -158,6 +158,8 @@ public final class ReactionNode: ASDisplayNode, ReactionItemNode {
     
     private var dismissedStillAnimationNodes: [AnimatedStickerNode] = []
     
+    private var staticIconNode: TransformImageNode?
+    
     private var fetchStickerDisposable: Disposable?
     private var fetchFullAnimationDisposable: Disposable?
     
@@ -178,7 +180,40 @@ public final class ReactionNode: ASDisplayNode, ReactionItemNode {
     }
     
     var isAnimationLoaded: Bool {
+        if sharedLiteModeEnabled {
+            if self.staticIconNode != nil {
+                return self.didSetupStillAnimation
+            }
+            return self.staticAnimationNode.currentFrameImage != nil || self.didSetupStillAnimation || self.staticAnimationPlaceholderView != nil
+        }
         return self.staticAnimationNode.currentFrameImage != nil
+    }
+    
+    private func setupLiteModeStaticIconIfNeeded() {
+        guard sharedLiteModeEnabled, self.staticIconNode == nil, let staticIcon = self.item.staticIcon else {
+            return
+        }
+        
+        let staticIconNode = TransformImageNode()
+        staticIconNode.displaysAsynchronously = false
+        staticIconNode.contentAnimations = []
+        self.staticIconNode = staticIconNode
+        self.staticAnimationNode.isHidden = true
+        
+        let file = staticIcon._parse()
+        staticIconNode.setSignal(chatMessageSticker(account: self.context.account, userLocation: .other, file: file, small: false, synchronousLoad: true))
+        
+        self.addSubnode(staticIconNode)
+        self.didSetupStillAnimation = true
+    }
+    
+    private func updateStaticIconLayout(frame: CGRect, transition: ContainedViewLayoutTransition) {
+        guard let staticIconNode = self.staticIconNode else {
+            return
+        }
+        transition.updateFrame(node: staticIconNode, frame: frame)
+        let imageSize = (self.item.staticIcon?.dimensions?.cgSize ?? CGSize(width: 512.0, height: 512.0)).aspectFitted(frame.size)
+        staticIconNode.asyncLayout()(TransformImageArguments(corners: ImageCorners(), imageSize: imageSize, boundingSize: frame.size, intrinsicInsets: UIEdgeInsets()))()
     }
     
     public init(context: AccountContext, theme: PresentationTheme, item: ReactionItem, icon: EmojiPagerContentComponent.Item.Icon, animationCache: AnimationCache, animationRenderer: MultiAnimationRenderer, loopIdle: Bool, isLocked: Bool, hasAppearAnimation: Bool = true, useDirectRendering: Bool = false) {
@@ -206,7 +241,7 @@ public final class ReactionNode: ASDisplayNode, ReactionItemNode {
         
         super.init()
         
-        if case .stars = item.reaction.rawValue {
+        if case .stars = item.reaction.rawValue, !sharedLiteModeEnabled {
             let starsEffectLayer = StarsButtonEffectLayer()
             self.starsEffectLayer = starsEffectLayer
             self.layer.addSublayer(starsEffectLayer)
@@ -238,11 +273,18 @@ public final class ReactionNode: ASDisplayNode, ReactionItemNode {
             strongSelf.animateInAnimationNode = nil
         }
         
-        self.fetchStickerDisposable = context.engine.resources.fetch(reference: .standalone(resource: item.appearAnimation._parse().resource), userLocation: .other, userContentType: .sticker).start()
-        self.fetchStickerDisposable = context.engine.resources.fetch(reference: .standalone(resource: item.stillAnimation._parse().resource), userLocation: .other, userContentType: .sticker).start()
-        self.fetchStickerDisposable = context.engine.resources.fetch(reference: .standalone(resource: item.listAnimation._parse().resource), userLocation: .other, userContentType: .sticker).start()
-        if let applicationAnimation = item.applicationAnimation {
-            self.fetchFullAnimationDisposable = context.engine.resources.fetch(reference: .standalone(resource: applicationAnimation._parse().resource), userLocation: .other, userContentType: .sticker).start()
+        if sharedLiteModeEnabled, self.item.staticIcon != nil {
+            if let staticIcon = self.item.staticIcon {
+                self.fetchStickerDisposable = context.engine.resources.fetch(reference: .standalone(resource: staticIcon._parse().resource), userLocation: .other, userContentType: .sticker).start()
+            }
+            self.setupLiteModeStaticIconIfNeeded()
+        } else {
+            self.fetchStickerDisposable = context.engine.resources.fetch(reference: .standalone(resource: item.appearAnimation._parse().resource), userLocation: .other, userContentType: .sticker).start()
+            self.fetchStickerDisposable = context.engine.resources.fetch(reference: .standalone(resource: item.stillAnimation._parse().resource), userLocation: .other, userContentType: .sticker).start()
+            self.fetchStickerDisposable = context.engine.resources.fetch(reference: .standalone(resource: item.listAnimation._parse().resource), userLocation: .other, userContentType: .sticker).start()
+            if let applicationAnimation = item.applicationAnimation {
+                self.fetchFullAnimationDisposable = context.engine.resources.fetch(reference: .standalone(resource: applicationAnimation._parse().resource), userLocation: .other, userContentType: .sticker).start()
+            }
         }
         
         if self.isLocked {
@@ -340,9 +382,13 @@ public final class ReactionNode: ASDisplayNode, ReactionItemNode {
         
         let expandedAnimationFrame = animationFrame
         
-        if isExpanded && !self.hasAppearAnimation {
+        if self.staticIconNode != nil {
+            self.updateStaticIconLayout(frame: isExpanded ? expandedAnimationFrame : animationFrame, transition: transition)
+        }
+        
+        if isExpanded && !self.hasAppearAnimation && self.staticIconNode == nil {
             self.staticAnimationNode.play(firstFrame: false, fromIndex: 0)
-        } else if isExpanded, self.animationNode == nil {
+        } else if isExpanded, self.animationNode == nil, self.staticIconNode == nil {
             let animationNode: AnimatedStickerNode = self.useDirectRendering ? DirectAnimatedStickerNode() : DefaultAnimatedStickerNodeImpl()
             animationNode.automaticallyLoadFirstFrame = true
             self.animationNode = animationNode
@@ -498,12 +544,12 @@ public final class ReactionNode: ASDisplayNode, ReactionItemNode {
             }
         }
         
-        if !self.didSetupStillAnimation && self.customContentsNode == nil {
+        if self.staticIconNode == nil, !self.didSetupStillAnimation && self.customContentsNode == nil {
             if self.animationNode == nil {
                 self.didSetupStillAnimation = true
                 
                 let staticFile: TelegramMediaFile
-                if !self.hasAppearAnimation {
+                if !self.hasAppearAnimation && !sharedLiteModeEnabled {
                     staticFile = self.item.largeListAnimation._parse()
                 } else {
                     staticFile = self.item.stillAnimation._parse()
@@ -530,7 +576,7 @@ public final class ReactionNode: ASDisplayNode, ReactionItemNode {
                 }
                 
                 self.staticAnimationNode.automaticallyLoadFirstFrame = true
-                if !self.hasAppearAnimation {
+                if !self.hasAppearAnimation && !sharedLiteModeEnabled {
                     self.staticAnimationNode.setup(source: AnimatedStickerResourceSource(account: self.context.account, resource: self.item.largeListAnimation._parse().resource, isVideo: self.item.largeListAnimation.isVideoEmoji || self.item.largeListAnimation.isVideoSticker || self.item.largeListAnimation.isStaticSticker || self.item.largeListAnimation.isStaticEmoji), width: Int(expandedAnimationFrame.width * 2.0), height: Int(expandedAnimationFrame.height * 2.0), playbackMode: .still(.start), mode: .direct(cachePathPrefix: self.context.engine.resources.shortLivedResourceCachePathPrefix(id: EngineMediaResource.Id(self.item.largeListAnimation._parse().resource.id))))
                 } else {
                     self.staticAnimationNode.setup(source: AnimatedStickerResourceSource(account: self.context.account, resource: self.item.stillAnimation._parse().resource, isVideo: self.item.stillAnimation.isVideoEmoji || self.item.stillAnimation.isVideoSticker || self.item.stillAnimation.isStaticSticker || self.item.stillAnimation.isStaticEmoji), width: Int(animationDisplaySize.width * 2.0), height: Int(animationDisplaySize.height * 2.0), playbackMode: .still(.start), mode: .direct(cachePathPrefix: self.context.engine.resources.shortLivedResourceCachePathPrefix(id: EngineMediaResource.Id(self.item.stillAnimation._parse().resource.id))))

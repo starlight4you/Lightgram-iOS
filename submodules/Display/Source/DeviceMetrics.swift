@@ -8,6 +8,8 @@ public enum DeviceType {
 public enum DeviceMetrics: CaseIterable, Equatable {
     public struct Performance {
         public let isGraphicallyCapable: Bool
+        public let physicalMemoryBytes: UInt64
+        public let isLowEndDevice: Bool
         
         init() {
             var length: Int = 4
@@ -15,6 +17,16 @@ public enum DeviceMetrics: CaseIterable, Equatable {
             sysctlbyname("hw.ncpu", &cpuCount, &length, nil, 0)
             
             self.isGraphicallyCapable = cpuCount >= 4
+            
+            var memSize: UInt64 = 0
+            var memLength: Int = MemoryLayout<UInt64>.size
+            sysctlbyname("hw.memsize", &memSize, &memLength, nil, 0)
+            self.physicalMemoryBytes = memSize
+            
+            // Treat as low-end if either dual-core or has less than 3 GB RAM.
+            // Targets the iPad Air 2 / iPad mini 4 / iPad Pro 1st-gen class of devices.
+            let lowMemoryThreshold: UInt64 = 3 * 1024 * 1024 * 1024
+            self.isLowEndDevice = cpuCount < 4 || (memSize > 0 && memSize < lowMemoryThreshold)
         }
     }
     

@@ -250,6 +250,7 @@ public final class BatchVideoRenderingContext {
         
         var removeIds: [Int] = []
         var renderIds: [Int: Int] = [:]
+        var decodeBudget = sharedLiteModeEnabled ? liteModeMaxSimultaneousGifDecodes : Int.max
         for (id, targetContext) in self.targetContexts {
             guard let target = targetContext.target else {
                 removeIds.append(id)
@@ -263,8 +264,9 @@ public final class BatchVideoRenderingContext {
                 target.batchVideoRenderingTargetState = targetState
             }
             
-            if targetState.sampleBuffers.count < 2 {
+            if targetState.sampleBuffers.count < 2, decodeBudget > 0 {
                 renderIds[id] = 2 - targetState.sampleBuffers.count
+                decodeBudget -= 1
             }
         }
         

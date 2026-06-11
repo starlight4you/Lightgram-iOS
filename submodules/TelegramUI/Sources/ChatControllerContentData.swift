@@ -1,4 +1,5 @@
 import Foundation
+import Display
 import TelegramPresentationData
 import AccountContext
 import Postbox
@@ -2036,20 +2037,43 @@ extension ChatControllerImpl {
             }
             |> map { _ -> Bool in true }
             
-            self.isReady.set(combineLatest(queue: .mainQueue(), [
-                self.isPeerInfoReady.get(),
-                self.isChatLocationInfoReady.get(),
-                self.isCachedDataReady.get(),
-                historyNode.isReady,
-                initialData |> map { _ -> Bool in true },
-                initialPersistentPeerDataReady
-            ])
+            let isReadySignals: [Signal<Bool, NoError>]
+            if sharedLiteModeEnabled {
+                isReadySignals = [
+                    self.isPeerInfoReady.get(),
+                    historyNode.isReady
+                ]
+            } else {
+                isReadySignals = [
+                    self.isPeerInfoReady.get(),
+                    self.isChatLocationInfoReady.get(),
+                    self.isCachedDataReady.get(),
+                    historyNode.isReady,
+                    initialData |> map { _ -> Bool in true },
+                    initialPersistentPeerDataReady
+                ]
+            }
+            
+            self.isReady.set(combineLatest(queue: .mainQueue(), isReadySignals)
             |> map { values in
                 return !values.contains(where: { !$0 })
             }
             |> filter { $0 }
             |> take(1)
             |> distinctUntilChanged)
+            
+            if sharedLiteModeEnabled {
+                let _ = (combineLatest(queue: .mainQueue(), [
+                    self.isChatLocationInfoReady.get(),
+                    self.isCachedDataReady.get(),
+                    initialData |> map { _ -> Bool in true },
+                    initialPersistentPeerDataReady
+                ])
+                |> filter { values in
+                    return !values.contains(where: { !$0 })
+                }
+                |> take(1)).startStandalone()
+            }
             
             self.buttonKeyboardMessageDisposable?.dispose()
             self.buttonKeyboardMessageDisposable = historyNode.buttonKeyboardMessage.startStrict(next: { [weak self] message in

@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Display
 import Postbox
 import TelegramCore
 import SwiftSignalKit
@@ -1516,17 +1517,19 @@ func peerInfoScreenData(
             |> map { peerView, availablePanes, globalNotificationSettings, encryptionKeyFingerprint, status, hasStories, hasStoryArchive, recommendedBots, accountIsPremium, savedMessagesPeer, hasSavedMessagesChats, hasSavedMessages, hasSavedMessageTags, hasBotPreviewItems, personalChannel, privacySettings, starsRevenueContextAndState, revenueContextAndState, premiumGiftOptions, webAppPermissions, savedMusicState, businessConnectedBot -> PeerInfoScreenData in
                 var availablePanes = availablePanes
                 if isMyProfile {
-                    availablePanes?.insert(.stories, at: 0)
+                    if !sharedLiteModeEnabled {
+                        availablePanes?.insert(.stories, at: 0)
+                    }
                     if availablePanes != nil, profileGiftsContext != nil, let cachedData = peerView.cachedData as? CachedUserData {
                         if let starGiftsCount = cachedData.starGiftsCount, starGiftsCount > 0 {
                             availablePanes?.insert(.gifts, at: 1)
                         }
                     }
-                    if let hasStoryArchive, hasStoryArchive {
+                    if let hasStoryArchive, hasStoryArchive, !sharedLiteModeEnabled {
                         availablePanes?.append(.storyArchive)
                     }
                 } else if let hasStories {
-                    if hasStories, peerView.peers[peerView.peerId] is TelegramUser, peerView.peerId != context.account.peerId {
+                    if hasStories, peerView.peers[peerView.peerId] is TelegramUser, peerView.peerId != context.account.peerId, !sharedLiteModeEnabled {
                         availablePanes?.insert(.stories, at: 0)
                     }
                     
@@ -1795,7 +1798,7 @@ func peerInfoScreenData(
             |> map { peerView, availablePanes, globalNotificationSettings, status, currentInvitationsContext, invitations, currentRequestsContext, requests, hasStories, accountIsPremium, recommendedChannels, hasSavedMessages, hasSavedMessagesChats, hasSavedMessageTags, isPremiumRequiredForStoryPosting, starsRevenueContextAndState, revenueContextAndState, profileGiftsState, personalChannel -> PeerInfoScreenData in
                 var availablePanes = availablePanes
                 if let hasStories {
-                    if hasStories {
+                    if hasStories, !sharedLiteModeEnabled {
                         availablePanes?.insert(.stories, at: 0)
                     }
                     if let recommendedChannels, !recommendedChannels.channels.isEmpty {
@@ -2148,7 +2151,7 @@ func peerInfoScreenData(
                 }
                 
                 if let hasStories {
-                    if hasStories {
+                    if hasStories, !sharedLiteModeEnabled {
                         availablePanes?.insert(.stories, at: 0)
                     }
                     if case .peer = chatLocation {

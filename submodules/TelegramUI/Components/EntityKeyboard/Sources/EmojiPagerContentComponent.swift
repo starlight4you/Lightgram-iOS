@@ -1879,7 +1879,7 @@ public final class EmojiPagerContentComponent: Component {
                 self.scrollView.bounds = CGRect(origin: CGPoint(x: 0.0, y: scrollPosition), size: self.scrollView.bounds.size)
                 self.ignoreScrolling = wasIgnoringScrollingEvents
                 
-                self.updateVisibleItems(transition: .immediate, attemptSynchronousLoads: true, previousItemPositions: nil, updatedItemPositions: nil)
+                self.updateVisibleItems(transition: .immediate, attemptSynchronousLoads: !sharedLiteModeEnabled, previousItemPositions: nil, updatedItemPositions: nil)
                 
                 var commonItemOffset: CGFloat?
                 var previousVisibleBoundingRect: CGRect?
@@ -2373,7 +2373,7 @@ public final class EmojiPagerContentComponent: Component {
                     self.scrollView.bounds = CGRect(origin: CGPoint(x: 0.0, y: scrollPosition), size: self.scrollView.bounds.size)
                     self.ignoreScrolling = wasIgnoringScrollingEvents
                     
-                    self.updateVisibleItems(transition: .immediate, attemptSynchronousLoads: true, previousItemPositions: nil, updatedItemPositions: nil)
+                    self.updateVisibleItems(transition: .immediate, attemptSynchronousLoads: !sharedLiteModeEnabled, previousItemPositions: nil, updatedItemPositions: nil)
                     
                     var commonItemOffset: CGFloat?
                     var previousVisibleBoundingRect: CGRect?
@@ -4717,7 +4717,7 @@ public final class EmojiPagerContentComponent: Component {
             }
             
             var attemptSynchronousLoads = !(scrollView.isDragging || scrollView.isDecelerating)
-            if resetScrolling {
+            if resetScrolling && !sharedLiteModeEnabled {
                 attemptSynchronousLoads = true
             }
             if let synchronousLoadBehavior = transition.userData(SynchronousLoadBehavior.self) {

@@ -93,8 +93,7 @@ private final class SliderContextItemNode: ASDisplayNode, ContextMenuCustomNode,
         
         self.isUserInteractionEnabled = true
         
-        if presentationData.theme.overallDarkAppearance {
-        } else {
+        if !presentationData.theme.overallDarkAppearance && !sharedDisableBlur {
             let style: UIBlurEffect.Style
             style = .extraLight
             let blurEffect = UIBlurEffect(style: style)

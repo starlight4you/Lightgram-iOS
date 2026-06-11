@@ -410,32 +410,7 @@ public final class AccountContextImpl: AccountContext {
             CallSessionManagerImplementationVersion(version: version, supportsVideo: supportsVideo)
         })
         
-        self.animatedEmojiStickersDisposable = (self.engine.stickers.loadedStickerPack(reference: .animatedEmoji, forceActualized: false)
-        |> map { animatedEmoji -> [String: [StickerPackItem]] in
-            var animatedEmojiStickers: [String: [StickerPackItem]] = [:]
-            switch animatedEmoji {
-                case let .result(_, items, _):
-                    for item in items {
-                        if let emoji = item.getStringRepresentationsOfIndexKeys().first {
-                            animatedEmojiStickers[emoji.basicEmoji.0] = [item]
-                            let strippedEmoji = emoji.basicEmoji.0.strippedEmoji
-                            if animatedEmojiStickers[strippedEmoji] == nil {
-                                animatedEmojiStickers[strippedEmoji] = [item]
-                            }
-                        }
-                    }
-                default:
-                    break
-            }
-            return animatedEmojiStickers
-        }
-        |> deliverOnMainQueue).start(next: { [weak self] stickers in
-            guard let strongSelf = self else {
-                return
-            }
-            strongSelf.animatedEmojiStickersValue = stickers
-            strongSelf.animatedEmojiStickersPromise.set(.single(stickers))
-        })
+        self.animatedEmojiStickersDisposable = self.startAnimatedEmojiStickersSubscription(deferred: sharedDeferStartupWarmups)
         
         self.userLimitsConfigurationDisposable = (self.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: account.peerId))
         |> mapToSignal { peer -> Signal<(Bool, EngineConfiguration.UserLimits), NoError> in
@@ -502,6 +477,49 @@ public final class AccountContextImpl: AccountContext {
             }
             (self.animationRenderer as? DCTMultiAnimationRendererImpl)?.useYuvA = settings.compressedEmojiCache
         })
+    }
+    
+    private func startAnimatedEmojiStickersSubscription(deferred: Bool = false) -> Disposable? {
+        let subscribe: () -> Disposable = { [weak self] in
+            guard let self else {
+                return EmptyDisposable
+            }
+            return (self.engine.stickers.loadedStickerPack(reference: .animatedEmoji, forceActualized: false)
+            |> map { animatedEmoji -> [String: [StickerPackItem]] in
+                var animatedEmojiStickers: [String: [StickerPackItem]] = [:]
+                switch animatedEmoji {
+                    case let .result(_, items, _):
+                        for item in items {
+                            if let emoji = item.getStringRepresentationsOfIndexKeys().first {
+                                animatedEmojiStickers[emoji.basicEmoji.0] = [item]
+                                let strippedEmoji = emoji.basicEmoji.0.strippedEmoji
+                                if animatedEmojiStickers[strippedEmoji] == nil {
+                                    animatedEmojiStickers[strippedEmoji] = [item]
+                                }
+                            }
+                        }
+                    default:
+                        break
+                }
+                return animatedEmojiStickers
+            }
+            |> deliverOnMainQueue).start(next: { [weak self] stickers in
+                guard let strongSelf = self else {
+                    return
+                }
+                strongSelf.animatedEmojiStickersValue = stickers
+                strongSelf.animatedEmojiStickersPromise.set(.single(stickers))
+            })
+        }
+        if deferred {
+            let disposable = MetaDisposable()
+            Queue.mainQueue().after(1.5) {
+                disposable.set(subscribe())
+            }
+            return disposable
+        } else {
+            return subscribe()
+        }
     }
     
     deinit {
